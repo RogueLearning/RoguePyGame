@@ -141,6 +141,15 @@ class Game:
                     if self._renderer.is_animating():
                         continue
                         
+                    # Handle Enter key for stairs
+                    if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                        current_tile = self._level.tiles[self._player.x][self._player.y].type
+                        if current_tile == TileType.STAIRS_DOWN:
+                            self._try_descend()
+                        elif current_tile == TileType.STAIRS_UP:
+                            self._try_ascend()
+                        continue
+
                     # Handle symbol triggers (discrete events)
                     char = event.unicode
                     if char == ">":
