@@ -121,6 +121,15 @@ class Game:
                         key_str = ">"
                     elif char == "<":
                         key_str = "<"
+                    elif event.key == pygame.K_SPACE:
+                        took_turn = self._attack_in_facing_direction()
+                        if not self._player.is_alive:
+                            self._trigger_game_over()
+                        elif took_turn and not self._renderer.is_animating():
+                            self._monsters_act()
+                            if not self._player.is_alive:
+                                self._trigger_game_over()
+                        continue
                     else:
                         key_str = self._map_key(event.key)
 
@@ -160,7 +169,7 @@ class Game:
                         self._state = GameState.PLAYING
                         continue
 
-                    self._start_fireball(dx, dy)
+                    self._start_lightning(dx, dy)
 
     def _map_key(self, key_val) -> str | None:
         if key_val in (pygame.K_UP, pygame.K_w):
@@ -376,7 +385,39 @@ class Game:
         self._renderer.add_particles(self._player.x, self._player.y, (240, 205, 35), count=15)
         return True
 
-    def _start_fireball(self, dx: int, dy: int):
+    def _attack_in_facing_direction(self) -> bool:
+        facing = self._player.facing
+        dx, dy = 0, 0
+        if facing == "UP":
+            dy = -1
+        elif facing == "DOWN":
+            dy = 1
+        elif facing == "LEFT":
+            dx = -1
+        elif facing == "RIGHT":
+            dx = 1
+
+        # Check if wand is equipped and has charges. If so, zap lightning!
+        wand = self._player.inventory.equipped_wand
+        if wand is not None and wand.charges > 0:
+            self._start_lightning(dx, dy)
+            return True
+
+        # Melee attack
+        nx = self._player.x + dx
+        ny = self._player.y + dy
+
+        monster = self._level.monster_at(nx, ny)
+        if monster is not None:
+            self._attack_monster(monster)
+            return True
+
+        # Swing in air (visually bump and show message)
+        self._renderer.add_bump(self._player, (nx, ny))
+        self._log.add("You swing at thin air.", Color.DARK_GRAY)
+        return True
+
+    def _start_lightning(self, dx: int, dy: int):
         wand = self._player.inventory.equipped_wand
         if wand is None or wand.charges <= 0:
             self._state = GameState.PLAYING
@@ -402,35 +443,35 @@ class Game:
                 break
 
         if not path:
-            self._log.add("The fireball fizzles instantly.", Color.DARK_GRAY)
+            self._log.add("The lightning fizzles instantly.", Color.DARK_GRAY)
             self._state = GameState.PLAYING
             return
 
         wand.charges -= 1
         self._state = GameState.ANIMATING
 
-        # Projectile callback runs when the fireball visual hits target
+        # Projectile callback runs when the lightning visual hits target
         def on_projectile_complete():
             nonlocal target_monster, target_wall
             if target_wall:
-                self._log.add("The fireball bursts against the wall.", Color.RED)
+                self._log.add("The lightning crackles against the wall.", Color.RED)
             elif target_monster is not None:
                 m = target_monster
                 dmg = wand.wand_damage + self._rng.randint(-1, 1)
                 m.hp -= dmg
-                self._log.add(f"The fireball hits the {m.name} for {dmg}!", Color.RED)
+                self._log.add(f"The lightning shocks the {m.name} for {dmg}!", Color.CYAN)
                 
                 # Floating damage text and sparks
-                self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (220, 55, 55))
-                self._renderer.add_particles(m.x, m.y, (240, 100, 30), count=12)
+                self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (50, 190, 220))
+                self._renderer.add_particles(m.x, m.y, (100, 200, 255), count=12)
 
                 if not m.is_alive:
-                    self._log.add(f"You burn the {m.name} to ash!", Color.GREEN)
+                    self._log.add(f"You shock the {m.name} to dust!", Color.GREEN)
                     self._player.kills += 1
                     if m in self._level.monsters:
                         self._level.monsters.remove(m)
             else:
-                self._log.add("The fireball fizzles in the air.", Color.DARK_GRAY)
+                self._log.add("The lightning dissipates into the dark.", Color.DARK_GRAY)
 
             # Monsters act after player turn is complete
             if self._player.is_alive:
@@ -442,8 +483,8 @@ class Game:
             else:
                 self._trigger_game_over()
 
-        # Launch the fireball projectile animation on the renderer
-        self._renderer.add_projectile(path, on_projectile_complete)
+        # Launch the lightning projectile animation on the renderer (type="lightning")
+        self._renderer.add_projectile(path, on_projectile_complete, type="lightning")
 
     def _try_ascend(self) -> bool:
         if self._level.tiles[self._player.x][self._player.y].type != TileType.STAIRS_UP:

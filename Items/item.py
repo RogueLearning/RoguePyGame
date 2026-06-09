@@ -46,9 +46,9 @@ def create(x: int, y: int, depth: int, rng: random.Random) -> ItemEntity:
     ie = ItemEntity(x=x, y=y)
     if depth >= 2 and rng.randrange(100) < 15:
         item = Item()
-        item.name = "wand of fireball"
+        item.name = "wand of lightning"
         item.glyph = "🪄"
-        item.color = Color.MAGENTA
+        item.color = Color.CYAN  # Cyan color fits lightning perfectly!
         item.kind = ItemKind.WAND
         item.wand_damage = 8 + depth // 3
         item.wand_range = 6

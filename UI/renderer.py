@@ -117,12 +117,13 @@ class Renderer:
                 "max_life": 1.0
             })
 
-    def add_projectile(self, path: list[tuple[int, int]], callback):
+    def add_projectile(self, path: list[tuple[int, int]], callback, type="lightning"):
         self._projectiles.append({
             "path": path,
             "index": 0.0,
-            "speed": 0.35,  # tiles per frame
-            "callback": callback
+            "speed": 0.45 if type == "lightning" else 0.35,  # Lightning travels faster!
+            "callback": callback,
+            "type": type
         })
 
     def add_bump(self, entity, target_tile: tuple[int, int]):
@@ -175,33 +176,47 @@ class Renderer:
             
             # Spawn trail particles at the current projectile position
             idx = int(proj["index"])
+            ptype = proj.get("type", "lightning")
             if idx < len(path) - 1:
                 frac = proj["index"] - idx
                 t1 = path[idx]
                 t2 = path[idx + 1]
                 px = (t1[0] + (t2[0] - t1[0]) * frac + 0.5) * TILE_SIZE
                 py = (t1[1] + (t2[1] - t1[1]) * frac + 0.5) * TILE_SIZE
-                # Trail smoke particle
-                self._particles.append({
-                    "x": px,
-                    "y": py,
-                    "vx": random.uniform(-0.4, 0.4),
-                    "vy": random.uniform(-0.4, 0.4),
-                    "color": (250, 120, 20) if random.random() > 0.3 else (250, 220, 40),
-                    "size": random.uniform(3, 6),
-                    "life": random.uniform(0.2, 0.4),
-                    "max_life": 1.0
-                })
+                if ptype == "lightning":
+                    self._particles.append({
+                        "x": px,
+                        "y": py,
+                        "vx": random.uniform(-0.6, 0.6),
+                        "vy": random.uniform(-0.6, 0.6),
+                        "color": (100, 200, 255) if random.random() > 0.4 else (255, 255, 255),
+                        "size": random.uniform(2, 4),
+                        "life": random.uniform(0.15, 0.35),
+                        "max_life": 1.0
+                    })
+                else:
+                    self._particles.append({
+                        "x": px,
+                        "y": py,
+                        "vx": random.uniform(-0.4, 0.4),
+                        "vy": random.uniform(-0.4, 0.4),
+                        "color": (250, 120, 20) if random.random() > 0.3 else (250, 220, 40),
+                        "size": random.uniform(3, 6),
+                        "life": random.uniform(0.2, 0.4),
+                        "max_life": 1.0
+                    })
 
             if proj["index"] >= len(path) - 1:
                 # Finished!
                 self._projectiles.remove(proj)
-                # Spawn explosion particles at the destination
                 dest = path[-1]
-                self.add_particles(dest[0], dest[1], (230, 55, 55), count=18)
-                self.add_particles(dest[0], dest[1], (235, 195, 45), count=12)
+                if ptype == "lightning":
+                    self.add_particles(dest[0], dest[1], (100, 200, 255), count=15)
+                    self.add_particles(dest[0], dest[1], (255, 255, 255), count=8)
+                else:
+                    self.add_particles(dest[0], dest[1], (230, 55, 55), count=18)
+                    self.add_particles(dest[0], dest[1], (235, 195, 45), count=12)
                 self.trigger_shake(8.0)
-                # Run complete callback
                 proj["callback"]()
 
     def render(self, level: DungeonLevel, player: Player, log: MessageLog, show_inventory=False):
@@ -590,10 +605,48 @@ class Renderer:
             px = (t1[0] + (t2[0] - t1[0]) * frac + 0.5) * TILE_SIZE + shake_x
             py = (t1[1] + (t2[1] - t1[1]) * frac + 0.5) * TILE_SIZE + shake_y
             
-            # Draw fire core
-            pygame.draw.circle(self._screen, (255, 230, 40), (int(px), int(py)), 8)
-            pygame.draw.circle(self._screen, (240, 60, 20), (int(px), int(py)), 5)
-            pygame.draw.circle(self._screen, (255, 255, 255), (int(px), int(py)), 2)
+            ptype = proj.get("type", "lightning")
+            if ptype == "lightning":
+                # Compute starting point (player position)
+                dx = path[1][0] - path[0][0] if len(path) > 1 else 0
+                dy = path[1][1] - path[0][1] if len(path) > 1 else 0
+                
+                player_x = (path[0][0] - dx + 0.5) * TILE_SIZE + shake_x
+                player_y = (path[0][1] - dy + 0.5) * TILE_SIZE + shake_y
+                
+                # Draw crackling electrical bolt segments from player to current tip (px, py)
+                points = [(player_x, player_y)]
+                dist = math.hypot(px - player_x, py - player_y)
+                num_segments = max(4, int(dist / 8))
+                
+                for i in range(1, num_segments):
+                    t = i / num_segments
+                    lx = player_x + (px - player_x) * t
+                    ly = player_y + (py - player_y) * t
+                    
+                    # Add randomized offset perpendicular to direction
+                    line_dx = px - player_x
+                    line_dy = py - player_y
+                    line_len = math.hypot(line_dx, line_dy)
+                    if line_len > 0:
+                        nx = -line_dy / line_len
+                        ny = line_dx / line_len
+                        offset = random.uniform(-6, 6)
+                        lx += nx * offset
+                        ly += ny * offset
+                    points.append((lx, ly))
+                points.append((px, py))
+                
+                if len(points) >= 2:
+                    # Thick light blue outer glow
+                    pygame.draw.lines(self._screen, (100, 200, 255), False, points, 4)
+                    # Thin white core
+                    pygame.draw.lines(self._screen, (255, 255, 255), False, points, 2)
+            else:
+                # Fireball core
+                pygame.draw.circle(self._screen, (255, 230, 40), (int(px), int(py)), 8)
+                pygame.draw.circle(self._screen, (240, 60, 20), (int(px), int(py)), 5)
+                pygame.draw.circle(self._screen, (255, 255, 255), (int(px), int(py)), 2)
 
     def _draw_particles(self, shake_x: int, shake_y: int):
         for p in self._particles:
