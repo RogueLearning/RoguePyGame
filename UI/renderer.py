@@ -48,6 +48,14 @@ class Renderer:
         self._shake_decay = 0.85
         self._frame_count = 0
 
+        # Load animated spritesheet
+        self._spritesheet = None
+        try:
+            self._spritesheet = pygame.image.load("assets/knight_spritesheet.png").convert_alpha()
+        except Exception:
+            pass
+
+
     def _init_fonts(self):
         # Try to find a premium looking font, fallback to standard system fonts
         self._ui_font = None
@@ -440,7 +448,7 @@ class Renderer:
             rect = pygame.Rect(vx + ox + shake_x, vy + oy + shake_y, TILE_SIZE, TILE_SIZE)
             
             enchanted = (player.inventory.equipped_weapon and player.inventory.equipped_weapon.is_enchanted)
-            self._draw_player_sprite(rect, color_rgb(player.color), enchanted)
+            self._draw_player_sprite(rect, color_rgb(player.color), enchanted, player=player)
 
     def _get_interpolated_pos(self, entity) -> tuple[float, float]:
         target_x = entity.x * TILE_SIZE
@@ -529,12 +537,32 @@ class Renderer:
             # Threat marker dot
             pygame.draw.circle(self._screen, color, rect.center, 8)
 
-    def _draw_player_sprite(self, rect: pygame.Rect, color: tuple[int, int, int], enchanted: bool):
+    def _draw_player_sprite(self, rect: pygame.Rect, color: tuple[int, int, int], enchanted: bool, player: Player = None):
         # Glow ring if enchanted
         if enchanted:
             pygame.draw.circle(self._screen, (240, 200, 30), rect.center, 13, 2)
 
-        # Wizard Cloak (deep purple circle)
+        # Draw animated spritesheet if loaded
+        if self._spritesheet and player:
+            dir_rows = {"DOWN": 0, "UP": 1, "LEFT": 2, "RIGHT": 3}
+            row = dir_rows.get(player.facing, 0)
+            
+            # Check if moving to advance walk frame
+            is_moving = False
+            if player in self._entity_positions:
+                vx, vy = self._entity_positions[player]
+                tx, ty = player.x * TILE_SIZE, player.y * TILE_SIZE
+                is_moving = (math.hypot(tx - vx, ty - vy) > 0.5)
+                
+            frame_idx = 0
+            if is_moving:
+                frame_idx = (self._frame_count // 6) % 4
+                
+            src_rect = pygame.Rect(frame_idx * 32, row * 32, 32, 32)
+            self._screen.blit(self._spritesheet, rect.topleft, src_rect)
+            return
+
+        # Wizard Cloak (deep purple circle) fallback
         pygame.draw.circle(self._screen, (100, 45, 175), rect.center, 9)
         # Gold emblem/star on cloak
         pygame.draw.circle(self._screen, (245, 205, 35), (rect.centerx, rect.centery + 2), 2)

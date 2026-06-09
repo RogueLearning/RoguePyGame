@@ -20,6 +20,8 @@ class Player(Entity):
         self.glyph = "🧙"
         self.color = _DEFAULT_COLOR
         self.name = "you"
+        self.facing = "DOWN"
+
 
     @property
     def attack(self) -> int:

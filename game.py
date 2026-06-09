@@ -248,6 +248,16 @@ class Game:
         return False
 
     def _try_move(self, dx: int, dy: int) -> bool:
+        # Update player facing direction
+        if dx > 0:
+            self._player.facing = "RIGHT"
+        elif dx < 0:
+            self._player.facing = "LEFT"
+        elif dy > 0:
+            self._player.facing = "DOWN"
+        elif dy < 0:
+            self._player.facing = "UP"
+
         nx = self._player.x + dx
         ny = self._player.y + dy
         monster = self._level.monster_at(nx, ny)
@@ -259,6 +269,7 @@ class Game:
 
         self._player.x = nx
         self._player.y = ny
+
 
         self._try_use_fountain(nx, ny)
 
