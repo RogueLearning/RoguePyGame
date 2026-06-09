@@ -19,6 +19,7 @@ from UI.renderer import MAP_HEIGHT, MAP_WIDTH, Renderer
 
 FOV_RADIUS = 8
 HIGH_SCORE_FILE = "highscores.txt"
+MONSTER_ACT_COOLDOWN = 35  # Frames between monster steps in real-time
 
 
 class GameState(Enum):
@@ -33,8 +34,6 @@ class GameState(Enum):
 class Game:
     def __init__(self):
         self._rng = random.Random()
-        
-        # Initialize display in renderer
         self._renderer = Renderer()
         
         self._log = MessageLog()
@@ -48,15 +47,40 @@ class Game:
         self._clock = pygame.time.Clock()
         self._highscores = _load_scores()
 
+        # Real-time update variables
+        self._move_cooldown = 0
+        self._attack_cooldown = 0
+        self._monster_timer = MONSTER_ACT_COOLDOWN
+
     def run(self):
         self._enter_level(1, from_above=True)
         self._log.add(f"Welcome to the dungeon. Depth {self._player.depth}.", Color.YELLOW)
 
         while not self._quit:
-            # 1. Process Event Dispatch
+            # 1. Dispatch discrete events (like menus, quit, click triggers)
             self._handle_pygame_events()
 
-            # 2. Render Screen Frame based on current game state
+            # 2. Update real-time gameplay cycles if actively playing
+            if self._state == GameState.PLAYING:
+                # Decrement cooldown counts
+                if self._move_cooldown > 0:
+                    self._move_cooldown -= 1
+                if self._attack_cooldown > 0:
+                    self._attack_cooldown -= 1
+
+                # Process held inputs (movements/attacks)
+                if not self._renderer.is_animating():
+                    self._handle_continuous_input()
+
+                # Process monster behavior timers
+                self._monster_timer -= 1
+                if self._monster_timer <= 0:
+                    self._monsters_act()
+                    self._monster_timer = MONSTER_ACT_COOLDOWN
+                    if not self._player.is_alive:
+                        self._trigger_game_over()
+
+            # 3. Render frame view
             if self._state == GameState.TITLE_SCREEN:
                 self._renderer.render_title_screen(self._highscores)
             elif self._state == GameState.GAME_OVER:
@@ -67,7 +91,7 @@ class Game:
                 show_inventory = (self._state == GameState.INVENTORY)
                 self._renderer.render(self._level, self._player, self._log, show_inventory=show_inventory)
 
-            # 3. Game Tick Clock (Locked to 60 FPS)
+            # 4. Clock Tick
             self._clock.tick(60)
 
         pygame.quit()
@@ -88,6 +112,11 @@ class Game:
         self._renderer._damage_texts = []
         self._renderer._particles = []
 
+        # Reset real-time values
+        self._move_cooldown = 0
+        self._attack_cooldown = 0
+        self._monster_timer = MONSTER_ACT_COOLDOWN
+
     def _handle_pygame_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -95,52 +124,34 @@ class Game:
                 return
                 
             elif event.type == pygame.KEYDOWN:
-                # Quit key check for quick escape
+                # Quick quit key
                 if event.key == pygame.K_q and self._state in (GameState.TITLE_SCREEN, GameState.PLAYING):
                     self._quit = True
                     return
 
-                # Game State event dispatcher
                 if self._state == GameState.TITLE_SCREEN:
                     if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                         self._state = GameState.PLAYING
                         
                 elif self._state == GameState.GAME_OVER:
-                    # Press any key to return to title screen
                     self._state = GameState.TITLE_SCREEN
                     self._reset_game()
                     
                 elif self._state == GameState.PLAYING:
-                    # Don't accept movement keypresses if projectiles are in transit
                     if self._renderer.is_animating():
                         continue
                         
-                    # Handle symbol characters directly using event.unicode for layout-safety
+                    # Handle symbol triggers (discrete events)
                     char = event.unicode
                     if char == ">":
-                        key_str = ">"
+                        self._try_descend()
                     elif char == "<":
-                        key_str = "<"
-                    elif event.key == pygame.K_SPACE:
-                        took_turn = self._attack_in_facing_direction()
-                        if not self._player.is_alive:
-                            self._trigger_game_over()
-                        elif took_turn and not self._renderer.is_animating():
-                            self._monsters_act()
-                            if not self._player.is_alive:
-                                self._trigger_game_over()
-                        continue
+                        self._try_ascend()
                     else:
                         key_str = self._map_key(event.key)
-
-                    if key_str:
-                        took_turn = self._handle_input(key_str)
-                        if not self._player.is_alive:
-                            self._trigger_game_over()
-                        elif took_turn and not self._renderer.is_animating():
-                            self._monsters_act()
-                            if not self._player.is_alive:
-                                self._trigger_game_over()
+                        # Discrete gameplay hotkeys (inventory, pickup, quit)
+                        if key_str in ("g", "i", "q"):
+                            self._handle_input(key_str)
                                 
                 elif self._state == GameState.INVENTORY:
                     if event.key in (pygame.K_ESCAPE, pygame.K_i):
@@ -171,15 +182,44 @@ class Game:
 
                     self._start_lightning(dx, dy)
 
+    def _handle_continuous_input(self):
+        keys = pygame.key.get_pressed()
+
+        # Spacebar Attack Check (Ranged lightning or Melee swing)
+        if keys[pygame.K_SPACE] and self._attack_cooldown == 0:
+            self._attack_in_facing_direction()
+            self._attack_cooldown = 15  # 250ms attack rate limit
+            if not self._player.is_alive:
+                self._trigger_game_over()
+            return
+
+        # Player Movement Key Holding Check
+        if self._move_cooldown == 0:
+            dx, dy = 0, 0
+            if keys[pygame.K_UP] or keys[pygame.K_w]:
+                dy = -1
+            elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
+                dy = 1
+            elif keys[pygame.K_LEFT] or keys[pygame.K_a]:
+                dx = -1
+            elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+                dx = 1
+
+            if dx != 0 or dy != 0:
+                took_turn = self._try_move(dx, dy)
+                if took_turn:
+                    # Check if we triggered an attack (cooldown is longer)
+                    nx = self._player.x + dx
+                    ny = self._player.y + dy
+                    # If there was a monster, it was an attack, so give more visual impact frame lock
+                    if self._level.monster_at(nx, ny) is not None:
+                        self._move_cooldown = 15
+                    else:
+                        self._move_cooldown = 8  # ~130ms walk cycle rate
+                    if not self._player.is_alive:
+                        self._trigger_game_over()
+
     def _map_key(self, key_val) -> str | None:
-        if key_val in (pygame.K_UP, pygame.K_w):
-            return KEY_UP
-        if key_val in (pygame.K_DOWN, pygame.K_s):
-            return KEY_DOWN
-        if key_val in (pygame.K_LEFT, pygame.K_a):
-            return KEY_LEFT
-        if key_val in (pygame.K_RIGHT, pygame.K_d):
-            return KEY_RIGHT
         if key_val == pygame.K_g:
             return "g"
         if key_val == pygame.K_i:
@@ -225,24 +265,12 @@ class Game:
         self._player.update_appearance()
 
     def _handle_input(self, key: str) -> bool:
-        if key == KEY_UP:
-            return self._try_move(0, -1)
-        if key == KEY_DOWN:
-            return self._try_move(0, 1)
-        if key == KEY_LEFT:
-            return self._try_move(-1, 0)
-        if key == KEY_RIGHT:
-            return self._try_move(1, 0)
         lower = key.lower() if key else ""
         if lower == "g":
             return self._try_pick_up()
         if lower == "i":
             self._state = GameState.INVENTORY
             return False
-        if key == ">":
-            return self._try_descend()
-        if key == "<":
-            return self._try_ascend()
         if lower == "z":
             wand = self._player.inventory.equipped_wand
             if wand is None:
@@ -278,7 +306,6 @@ class Game:
 
         self._player.x = nx
         self._player.y = ny
-
 
         self._try_use_fountain(nx, ny)
 
@@ -473,13 +500,9 @@ class Game:
             else:
                 self._log.add("The lightning dissipates into the dark.", Color.DARK_GRAY)
 
-            # Monsters act after player turn is complete
+            # Move state back to playing after electric hit animation
             if self._player.is_alive:
-                self._monsters_act()
-                if not self._player.is_alive:
-                    self._trigger_game_over()
-                else:
-                    self._state = GameState.PLAYING
+                self._state = GameState.PLAYING
             else:
                 self._trigger_game_over()
 
