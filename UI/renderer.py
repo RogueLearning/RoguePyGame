@@ -386,9 +386,20 @@ class Renderer:
                 self._draw_weapon(rect, color)
             elif ie.item.kind.value == "wand":
                 self._draw_wand(rect, color)
+            elif ie.item.kind.value == "coin":
+                self._draw_coin(rect)
             else:
                 # Fallback circular pouch item
                 pygame.draw.circle(self._screen, color, rect.center, 6)
+
+    def _draw_coin(self, rect: pygame.Rect):
+        # Shiny Gold Coin drawing
+        # Outer ring
+        pygame.draw.circle(self._screen, (240, 195, 30), rect.center, 7)
+        # Inner detail circle
+        pygame.draw.circle(self._screen, (255, 230, 80), (rect.centerx - 1, rect.centery - 1), 4)
+        # Darker border
+        pygame.draw.circle(self._screen, (185, 140, 10), rect.center, 7, 1)
 
     def _draw_potion(self, rect: pygame.Rect, color: tuple[int, int, int]):
         # Flask neck
@@ -718,10 +729,11 @@ class Renderer:
         # Status text details
         self._draw_text(sx + 20, 110, f"ATK:   {player.attack}", color_rgb(Color.WHITE))
         self._draw_text(sx + 20, 140, f"Kills: {player.kills}", color_rgb(Color.WHITE))
-        self._draw_text(sx + 20, 170, f"Score: {player.score}", color_rgb(Color.CYAN), font=self._header_font)
+        self._draw_text(sx + 20, 170, f"Gold:  {player.coins}", (240, 195, 30), font=self._header_font)
+        self._draw_text(sx + 20, 200, f"Score: {player.score}", color_rgb(Color.CYAN), font=self._header_font)
 
         # Keyboard Controls Cheat Sheet
-        self._draw_text(sx + 20, 220, "-- CONTROLS --", color_rgb(Color.YELLOW), font=self._header_font)
+        self._draw_text(sx + 20, 240, "-- CONTROLS --", color_rgb(Color.YELLOW), font=self._header_font)
         controls = [
             ("Arrows", "Move / Bump Attack"),
             ("G Key", "Pick up item"),
@@ -731,7 +743,7 @@ class Renderer:
             ("< Key", "Ascend stairs"),
             ("Q Key", "Quit game"),
         ]
-        curr_y = 250
+        curr_y = 270
         for key, desc in controls:
             self._draw_text(sx + 20, curr_y, f"{key:6}: {desc}", color_rgb(Color.GRAY))
             curr_y += 24

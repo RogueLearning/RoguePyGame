@@ -21,6 +21,7 @@ class Player(Entity):
         self.color = _DEFAULT_COLOR
         self.name = "you"
         self.facing = "DOWN"
+        self.coins: int = 0
 
 
     @property

@@ -307,6 +307,16 @@ class Game:
         self._player.x = nx
         self._player.y = ny
 
+        # Auto-pickup coins
+        ie = self._level.item_at(nx, ny)
+        if ie is not None and ie.item.kind.value == "coin":
+            self._player.coins += ie.item.coin_value
+            self._log.add(f"You find {ie.item.coin_value} gold coins!", Color.YELLOW)
+            self._renderer.add_damage_text(self._player.x, self._player.y, f"+{ie.item.coin_value} Gold", (240, 200, 30))
+            self._renderer.add_particles(self._player.x, self._player.y, (240, 200, 30), count=6)
+            if ie in self._level.items:
+                self._level.items.remove(ie)
+
         self._try_use_fountain(nx, ny)
 
         here = self._level.item_at(nx, ny)
@@ -361,12 +371,36 @@ class Game:
             self._player.kills += 1
             if m in self._level.monsters:
                 self._level.monsters.remove(m)
+            self._drop_monster_loot(m)
+
+    def _drop_monster_loot(self, m: Monster):
+        # Boss always drops a massive heap of coins!
+        # Normal monsters drop coins with a 40% probability.
+        chance = 1.0 if m.is_boss else 0.40
+        if self._rng.random() < chance:
+            if m.is_boss:
+                value = self._rng.randint(25, 50) + 50
+            else:
+                value = self._rng.randint(2, 6) + self._player.depth * 2
+            
+            from Items.item import create_coin
+            coin_entity = create_coin(m.x, m.y, value)
+            self._level.items.append(coin_entity)
+            self._log.add(f"The {m.name} dropped some gold coins.", Color.DARK_GRAY)
 
     def _try_pick_up(self) -> bool:
         ie = self._level.item_at(self._player.x, self._player.y)
         if ie is None:
             self._log.add("Nothing to pick up.", Color.DARK_GRAY)
             return False
+        if ie.item.kind.value == "coin":
+            self._player.coins += ie.item.coin_value
+            self._log.add(f"You find {ie.item.coin_value} gold coins!", Color.YELLOW)
+            self._renderer.add_damage_text(self._player.x, self._player.y, f"+{ie.item.coin_value} Gold", (240, 200, 30))
+            self._renderer.add_particles(self._player.x, self._player.y, (240, 200, 30), count=6)
+            if ie in self._level.items:
+                self._level.items.remove(ie)
+            return True
         if not self._player.inventory.add(ie.item):
             self._log.add("Your pack is full.", Color.RED)
             return False
@@ -497,6 +531,7 @@ class Game:
                     self._player.kills += 1
                     if m in self._level.monsters:
                         self._level.monsters.remove(m)
+                    self._drop_monster_loot(m)
             else:
                 self._log.add("The lightning dissipates into the dark.", Color.DARK_GRAY)
 

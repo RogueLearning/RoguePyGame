@@ -8,6 +8,7 @@ class ItemKind(Enum):
     HEALING_POTION = "healing_potion"
     WEAPON = "weapon"
     WAND = "wand"
+    COIN = "coin"
 
 
 class Item:
@@ -22,6 +23,7 @@ class Item:
         self.charges: int = 0
         self.wand_damage: int = 0
         self.wand_range: int = 0
+        self.coin_value: int = 0
 
     @property
     def display_name(self) -> str:
@@ -73,3 +75,14 @@ def create(x: int, y: int, depth: int, rng: random.Random) -> ItemEntity:
         item.attack_bonus = bonus
         ie.item = item
     return ie
+
+
+def create_coin(x: int, y: int, value: int) -> ItemEntity:
+    item = Item()
+    item.name = "gold coins"
+    item.glyph = "🪙"
+    item.color = Color.YELLOW
+    item.kind = ItemKind.COIN
+    item.coin_value = value
+    return ItemEntity(x=x, y=y, item=item)
+
