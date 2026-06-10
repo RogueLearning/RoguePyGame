@@ -739,8 +739,7 @@ class Renderer:
             ("G Key", "Pick up item"),
             ("I Key", "Open Inventory"),
             ("Z Key", "Zap wand (+ Arrow)"),
-            ("> Key", "Descend stairs"),
-            ("< Key", "Ascend stairs"),
+            ("Enter", "Use stairs"),
             ("Q Key", "Quit game"),
         ]
         curr_y = 270
