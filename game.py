@@ -16,6 +16,7 @@ from UI.colors import Color
 from UI.keyboard import KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_UP
 from UI.message_log import MessageLog
 from UI.renderer import MAP_HEIGHT, MAP_WIDTH, Renderer
+from UI.sound import SoundManager
 
 FOV_RADIUS = 8
 HIGH_SCORE_FILE = "highscores.txt"
@@ -29,6 +30,8 @@ class GameState(Enum):
     INVENTORY = 4
     ZAP_PROMPT = 5
     GAME_OVER = 6
+    SHOP = 7
+    CLASS_SELECT = 8
 
 
 class Game:
@@ -46,6 +49,9 @@ class Game:
         self._state = GameState.TITLE_SCREEN
         self._clock = pygame.time.Clock()
         self._highscores = _load_scores()
+        self._active_merchant = None
+        self._selected_class_idx = 0
+        self._sound = SoundManager()
 
         # Real-time update variables
         self._move_cooldown = 0
@@ -67,6 +73,20 @@ class Game:
                     self._move_cooldown -= 1
                 if self._attack_cooldown > 0:
                     self._attack_cooldown -= 1
+                    
+                # Wizard Wand Recharge Tick
+                if getattr(self._player, "char_class", "") == "Wizard":
+                    if not hasattr(self, "_wizard_recharge_timer"):
+                        self._wizard_recharge_timer = 300
+                    self._wizard_recharge_timer -= 1
+                    if self._wizard_recharge_timer <= 0:
+                        self._wizard_recharge_timer = 300
+                        wand = self._player.inventory.equipped_wand
+                        if wand is not None and wand.kind == ItemKind.WAND:
+                            if wand.charges < 3:
+                                wand.charges += 1
+                                self._log.add("Your wand sparkles as it recharges a charge.", Color.MAGENTA)
+                                self._renderer.add_particles(self._player.x, self._player.y, (100, 200, 255), count=6)
 
                 # Process held inputs (movements/attacks)
                 if not self._renderer.is_animating():
@@ -83,13 +103,16 @@ class Game:
             # 3. Render frame view
             if self._state == GameState.TITLE_SCREEN:
                 self._renderer.render_title_screen(self._highscores)
+            elif self._state == GameState.CLASS_SELECT:
+                self._renderer.render_class_select(self._selected_class_idx)
             elif self._state == GameState.GAME_OVER:
                 self._renderer.render_game_over(self._player, self._highscores)
             else:
-                # PLAYING, ANIMATING, INVENTORY, ZAP_PROMPT
+                # PLAYING, ANIMATING, INVENTORY, ZAP_PROMPT, SHOP
                 fov.compute(self._level, self._player.x, self._player.y, FOV_RADIUS)
                 show_inventory = (self._state == GameState.INVENTORY)
-                self._renderer.render(self._level, self._player, self._log, show_inventory=show_inventory)
+                show_shop = self._active_merchant if (self._state == GameState.SHOP) else None
+                self._renderer.render(self._level, self._player, self._log, show_inventory=show_inventory, show_shop=show_shop)
 
             # 4. Clock Tick
             self._clock.tick(60)
@@ -104,6 +127,8 @@ class Game:
         self._enter_level(1, from_above=True)
         self._log = MessageLog()
         self._log.add(f"Welcome to the dungeon. Depth {self._player.depth}.", Color.YELLOW)
+        self._active_merchant = None
+        self._selected_class_idx = 0
         
         # Reset visual position arrays
         self._renderer._entity_positions = {}
@@ -116,6 +141,83 @@ class Game:
         self._move_cooldown = 0
         self._attack_cooldown = 0
         self._monster_timer = MONSTER_ACT_COOLDOWN
+
+    def _select_class_and_start(self, class_name: str):
+        self._player = Player()
+        self._player.char_class = class_name
+        
+        # Apply class-specific attributes
+        if class_name == "Knight":
+            self._player.hp = 40
+            self._player.max_hp = 40
+            self._player.base_attack = 4
+            
+            # Add shortsword
+            sword = Item()
+            sword.name = "shortsword"
+            sword.glyph = "🗡️"
+            sword.color = Color.CYAN
+            sword.kind = ItemKind.WEAPON
+            sword.attack_bonus = 2
+            self._player.inventory.add(sword)
+            self._player.inventory.equipped_weapon = sword
+            
+        elif class_name == "Wizard":
+            self._player.hp = 20
+            self._player.max_hp = 20
+            self._player.base_attack = 3
+            
+            # Add wand of lightning
+            wand = Item()
+            wand.name = "wand of lightning"
+            wand.glyph = "🪄"
+            wand.color = Color.CYAN
+            wand.kind = ItemKind.WAND
+            wand.wand_damage = 8
+            wand.wand_range = 6
+            wand.charges = 3
+            wand.max_charges = 3
+            self._player.inventory.add(wand)
+            self._player.inventory.equipped_wand = wand
+            
+        elif class_name == "Rogue":
+            self._player.hp = 30
+            self._player.max_hp = 30
+            self._player.base_attack = 4
+            
+            # Add dagger
+            dagger = Item()
+            dagger.name = "dagger"
+            dagger.glyph = "🗡️"
+            dagger.color = Color.CYAN
+            dagger.kind = ItemKind.WEAPON
+            dagger.attack_bonus = 1
+            self._player.inventory.add(dagger)
+            self._player.inventory.equipped_weapon = dagger
+
+        # Clear and generate level 1
+        self._levels = {}
+        self._level = None
+        self._boss_spawned = False
+        self._enter_level(1, from_above=True)
+        self._log = MessageLog()
+        self._log.add(f"Welcome, {class_name}! Depth {self._player.depth}.", Color.YELLOW)
+        self._active_merchant = None
+        
+        # Reset visual position arrays
+        self._renderer._entity_positions = {}
+        self._renderer._bumps = {}
+        self._renderer._projectiles = []
+        self._renderer._damage_texts = []
+        self._renderer._particles = []
+
+        # Reset real-time values
+        self._move_cooldown = 0
+        self._attack_cooldown = 0
+        self._monster_timer = MONSTER_ACT_COOLDOWN
+        self._wizard_recharge_timer = 300
+        
+        self._state = GameState.PLAYING
 
     def _handle_pygame_events(self):
         for event in pygame.event.get():
@@ -131,7 +233,27 @@ class Game:
 
                 if self._state == GameState.TITLE_SCREEN:
                     if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-                        self._state = GameState.PLAYING
+                        self._state = GameState.CLASS_SELECT
+                        self._selected_class_idx = 0
+                        
+                elif self._state == GameState.CLASS_SELECT:
+                    if event.key in (pygame.K_ESCAPE, pygame.K_q):
+                        self._state = GameState.TITLE_SCREEN
+                    elif event.key in (pygame.K_LEFT, pygame.K_a, pygame.K_UP, pygame.K_w):
+                        self._selected_class_idx = (self._selected_class_idx - 1) % 3
+                    elif event.key in (pygame.K_RIGHT, pygame.K_d, pygame.K_DOWN, pygame.K_s):
+                        self._selected_class_idx = (self._selected_class_idx + 1) % 3
+                    elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                        classes = ["Knight", "Wizard", "Rogue"]
+                        self._select_class_and_start(classes[self._selected_class_idx])
+                    else:
+                        char = event.unicode.lower()
+                        if char in ("1", "k"):
+                            self._select_class_and_start("Knight")
+                        elif char in ("2", "w"):
+                            self._select_class_and_start("Wizard")
+                        elif char in ("3", "r"):
+                            self._select_class_and_start("Rogue")
                         
                 elif self._state == GameState.GAME_OVER:
                     self._state = GameState.TITLE_SCREEN
@@ -190,6 +312,25 @@ class Game:
                         continue
 
                     self._start_lightning(dx, dy)
+                    
+                elif self._state == GameState.SHOP:
+                    if event.key in (pygame.K_ESCAPE, pygame.K_q):
+                        self._state = GameState.PLAYING
+                        self._active_merchant = None
+                    else:
+                        char = event.unicode.lower()
+                        slot_idx = -1
+                        if char in ("1", "a"):
+                            slot_idx = 0
+                        elif char in ("2", "b"):
+                            slot_idx = 1
+                        elif char in ("3", "c"):
+                            slot_idx = 2
+                        elif char in ("4", "d"):
+                            slot_idx = 3
+                            
+                        if 0 <= slot_idx < 4:
+                            self._buy_shop_item(slot_idx)
 
     def _handle_continuous_input(self):
         keys = pygame.key.get_pressed()
@@ -224,7 +365,7 @@ class Game:
                     if self._level.monster_at(nx, ny) is not None:
                         self._move_cooldown = 15
                     else:
-                        self._move_cooldown = 8  # ~130ms walk cycle rate
+                        self._move_cooldown = 6 if getattr(self._player, "char_class", "") == "Rogue" else 8  # ~130ms walk cycle rate
                     if not self._player.is_alive:
                         self._trigger_game_over()
 
@@ -239,6 +380,7 @@ class Game:
 
     def _trigger_game_over(self):
         self._state = GameState.GAME_OVER
+        self._sound.play("death")
         entry = (self._player.score, self._player.max_depth, self._player.kills, datetime.datetime.now())
         self._highscores.append(entry)
         self._highscores.sort(key=lambda s: s[0], reverse=True)
@@ -308,7 +450,13 @@ class Game:
         ny = self._player.y + dy
         monster = self._level.monster_at(nx, ny)
         if monster is not None:
-            self._attack_monster(monster)
+            if getattr(monster, "is_merchant", False):
+                self._active_merchant = monster
+                self._state = GameState.SHOP
+            elif getattr(monster, "is_chest", False):
+                self._interact_with_chest(monster)
+            else:
+                self._attack_monster(monster)
             return True
         if not self._level.is_walkable(nx, ny):
             return False
@@ -325,6 +473,9 @@ class Game:
             self._renderer.add_particles(self._player.x, self._player.y, (240, 200, 30), count=6)
             if ie in self._level.items:
                 self._level.items.remove(ie)
+            self._sound.play("pickup")
+        else:
+            self._sound.play("walk")
 
         self._try_use_fountain(nx, ny)
 
@@ -353,6 +504,7 @@ class Game:
         weapon.is_enchanted = True
         self._player.update_appearance()
         self._log.add(f"Your {weapon.display_name} glows with enchantment!", Color.CYAN)
+        self._sound.play("bless")
         
         # Enchanter graphic visual flash
         self._renderer.add_particles(x, y, (240, 200, 30), count=20)
@@ -366,14 +518,26 @@ class Game:
             self._renderer.add_damage_text(m.x, m.y, "GLANCE", (240, 200, 30))
             return
 
+        is_crit = False
+        if getattr(self._player, "char_class", "") == "Rogue" and self._rng.random() < 0.30:
+            is_crit = True
+            
         dmg = max(1, self._player.attack + self._rng.randint(-1, 1))
+        if is_crit:
+            dmg *= 2
+            
         m.hp -= dmg
-        self._log.add(f"You hit the {m.name} for {dmg}.", Color.WHITE)
-        
-        # Visual bumps, floating text numbers, and slice particles
+        self._sound.play("hit")
         self._renderer.add_bump(self._player, (m.x, m.y))
-        self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (220, 55, 55))
-        self._renderer.add_particles(m.x, m.y, (180, 50, 50), count=8)
+        
+        if is_crit:
+            self._log.add(f"Critical strike! You hit the {m.name} for {dmg}!", Color.YELLOW)
+            self._renderer.add_damage_text(m.x, m.y, f"CRIT! -{dmg}", (255, 215, 0))
+            self._renderer.add_particles(m.x, m.y, (255, 215, 0), count=15)
+        else:
+            self._log.add(f"You hit the {m.name} for {dmg}.", Color.WHITE)
+            self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (220, 55, 55))
+            self._renderer.add_particles(m.x, m.y, (180, 50, 50), count=8)
 
         if not m.is_alive:
             self._log.add(f"You kill the {m.name}!", Color.GREEN)
@@ -409,12 +573,14 @@ class Game:
             self._renderer.add_particles(self._player.x, self._player.y, (240, 200, 30), count=6)
             if ie in self._level.items:
                 self._level.items.remove(ie)
+            self._sound.play("pickup")
             return True
         if not self._player.inventory.add(ie.item):
             self._log.add("Your pack is full.", Color.RED)
             return False
         self._level.items.remove(ie)
         self._log.add(f"You pick up the {ie.item.display_name}.", Color.CYAN)
+        self._sound.play("pickup")
         
         # Graphic pop item grab effects
         self._renderer.add_damage_text(self._player.x, self._player.y, "GET!", (45, 175, 205))
@@ -431,6 +597,7 @@ class Game:
                 self._renderer.add_particles(self._player.x, self._player.y, (50, 220, 100), count=10)
             else:
                 self._log.add(f"You drink the {item.display_name}. No effect.", Color.GREEN)
+            self._sound.play("potion")
             self._player.inventory.remove(item)
             self._player.update_appearance()
         elif item.kind == ItemKind.WEAPON:
@@ -442,6 +609,152 @@ class Game:
             self._player.inventory.equipped_wand = item
             self._log.add(f"You ready the {item.display_name}.", Color.MAGENTA)
             self._renderer.add_damage_text(self._player.x, self._player.y, "READY", (200, 60, 200))
+        elif item.kind == ItemKind.KEY:
+            self._log.add("Use keys by walking into locked chests.", Color.YELLOW)
+
+    def _interact_with_chest(self, m):
+        if m.is_mimic:
+            # Wake up mimic!
+            m.is_chest = False
+            m.name = "mimic"
+            self._log.add("Surprise! The chest is a Mimic!", Color.RED)
+            self._renderer.add_damage_text(m.x, m.y, "MIMIC!", (240, 50, 50))
+            self._renderer.add_particles(m.x, m.y, (220, 50, 50), count=18)
+            self._renderer.trigger_shake(8.0)
+            self._sound.play("mimic")
+            
+            # Immediate ambush attack
+            dmg = max(1, m.attack + self._rng.randint(-1, 1))
+            if getattr(self._player, "char_class", "") == "Knight":
+                dmg = max(1, dmg - 1)
+                self._log.add(f"The mimic bites you for {dmg} (blocked 1)!", Color.RED)
+            else:
+                self._log.add(f"The mimic bites you for {dmg}!", Color.RED)
+                
+            self._player.hp -= dmg
+            self._renderer.add_damage_text(self._player.x, self._player.y, f"-{dmg}", (220, 55, 55))
+            self._renderer.add_particles(self._player.x, self._player.y, (210, 50, 50), count=8)
+            if not self._player.is_alive:
+                self._log.add("The mimic kills you...", Color.RED)
+                self._trigger_game_over()
+            return
+
+        if m.is_locked:
+            key_item = None
+            for item in self._player.inventory.items:
+                if item.kind == ItemKind.KEY:
+                    key_item = item
+                    break
+            
+            if key_item is None:
+                self._log.add("This chest is locked. You need a key to open it!", Color.YELLOW)
+                self._renderer.add_damage_text(m.x, m.y, "LOCKED", (240, 200, 30))
+                return
+            
+            # Consume key
+            self._player.inventory.remove(key_item)
+            self._log.add("You unlock and open the chest.", Color.GREEN)
+            self._sound.play("chest")
+            self._open_chest_loot(m, is_premium=True)
+        else:
+            self._log.add("You open the chest.", Color.GREEN)
+            self._sound.play("chest")
+            self._open_chest_loot(m, is_premium=False)
+
+    def _open_chest_loot(self, m, is_premium: bool):
+        if m in self._level.monsters:
+            self._level.monsters.remove(m)
+            
+        self._renderer.add_particles(m.x, m.y, (255, 215, 0) if is_premium else (220, 180, 140), count=20)
+        self._renderer.add_damage_text(m.x, m.y, "OPEN!", (255, 215, 0) if is_premium else (220, 220, 220))
+        self._renderer.trigger_shake(4.0)
+
+        from Items.item import ItemEntity, create_coin
+        
+        if is_premium:
+            p_item = Item()
+            if self._rng.random() < 0.40:
+                p_item.name = "wand of lightning"
+                p_item.glyph = "🪄"
+                p_item.color = Color.CYAN
+                p_item.kind = ItemKind.WAND
+                p_item.wand_damage = 10 + self._player.depth // 2
+                p_item.wand_range = 6
+                p_item.charges = 4 + self._rng.randrange(3)
+                p_item.max_charges = p_item.charges
+            else:
+                weapon_names = ["dagger", "shortsword", "longsword", "battle axe", "warhammer"]
+                bonus = 2 + self._player.depth // 2 + self._rng.randrange(2)
+                idx = max(0, min(bonus - 1, len(weapon_names) - 1))
+                p_item.name = weapon_names[idx]
+                p_item.glyph = "🗡️"
+                p_item.color = Color.CYAN
+                p_item.kind = ItemKind.WEAPON
+                p_item.attack_bonus = bonus
+                
+            self._level.items.append(ItemEntity(m.x, m.y, p_item))
+            self._log.add(f"A shiny {p_item.display_name} rolls out!", Color.CYAN)
+            
+            # Potion
+            pot = Item()
+            pot.name = "healing potion"
+            pot.glyph = "🧪"
+            pot.color = Color.RED
+            pot.kind = ItemKind.HEALING_POTION
+            pot.heal_amount = 12 + self._rng.randrange(8)
+            nx, ny = self._find_vacant_neighbor(m.x, m.y)
+            self._level.items.append(ItemEntity(nx, ny, pot))
+            
+            # Gold coins
+            val = self._rng.randint(15, 30) + self._player.depth * 5
+            nx2, ny2 = self._find_vacant_neighbor(m.x, m.y, exclude=(nx, ny))
+            self._level.items.append(create_coin(nx2, ny2, val))
+        else:
+            roll = self._rng.random()
+            if roll < 0.45:
+                pot = Item()
+                pot.name = "healing potion"
+                pot.glyph = "🧪"
+                pot.color = Color.RED
+                pot.kind = ItemKind.HEALING_POTION
+                pot.heal_amount = 8 + self._rng.randrange(6)
+                self._level.items.append(ItemEntity(m.x, m.y, pot))
+                self._log.add("A healing potion is inside!", Color.CYAN)
+            elif roll < 0.70:
+                p_item = Item()
+                if self._rng.random() < 0.30:
+                    p_item.name = "wand of lightning"
+                    p_item.glyph = "🪄"
+                    p_item.color = Color.CYAN
+                    p_item.kind = ItemKind.WAND
+                    p_item.wand_damage = 8 + self._player.depth // 3
+                    p_item.wand_range = 6
+                    p_item.charges = 3 + self._rng.randrange(2)
+                    p_item.max_charges = 3
+                else:
+                    weapon_names = ["dagger", "shortsword", "longsword"]
+                    bonus = 1 + self._player.depth // 2
+                    idx = max(0, min(bonus - 1, len(weapon_names) - 1))
+                    p_item.name = weapon_names[idx]
+                    p_item.glyph = "🗡️"
+                    p_item.color = Color.CYAN
+                    p_item.kind = ItemKind.WEAPON
+                    p_item.attack_bonus = bonus
+                self._level.items.append(ItemEntity(m.x, m.y, p_item))
+                self._log.add(f"A {p_item.display_name} is inside!", Color.CYAN)
+            else:
+                val = self._rng.randint(6, 15) + self._player.depth * 2
+                self._level.items.append(create_coin(m.x, m.y, val))
+                self._log.add(f"You find {val} gold coins inside!", Color.YELLOW)
+
+    def _find_vacant_neighbor(self, x: int, y: int, exclude: tuple[int, int] = None) -> tuple[int, int]:
+        for dx, dy in [(-1,0), (1,0), (0,-1), (0,1), (-1,-1), (1,-1), (-1,1), (1,1)]:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < MAP_WIDTH and 0 <= ny < MAP_HEIGHT:
+                if self._level.tiles[nx][ny].is_walkable:
+                    if exclude is None or (nx != exclude[0] or ny != exclude[1]):
+                        return nx, ny
+        return x, y
 
     def _try_descend(self) -> bool:
         if self._level.tiles[self._player.x][self._player.y].type != TileType.STAIRS_DOWN:
@@ -449,6 +762,7 @@ class Game:
             return False
         self._enter_level(self._player.depth + 1, from_above=True)
         self._log.add(f"You descend to depth {self._player.depth}.", Color.YELLOW)
+        self._sound.play("stairs")
         
         # Magic stairs transition flash
         self._renderer.trigger_shake(8.0)
@@ -479,7 +793,13 @@ class Game:
 
         monster = self._level.monster_at(nx, ny)
         if monster is not None:
-            self._attack_monster(monster)
+            if getattr(monster, "is_merchant", False):
+                self._active_merchant = monster
+                self._state = GameState.SHOP
+            elif getattr(monster, "is_chest", False):
+                self._interact_with_chest(monster)
+            else:
+                self._attack_monster(monster)
             return True
 
         # Swing in air (visually bump and show message)
@@ -519,6 +839,7 @@ class Game:
 
         wand.charges -= 1
         self._state = GameState.ANIMATING
+        self._sound.play("zap")
 
         # Projectile callback runs when the lightning visual hits target
         def on_projectile_complete():
@@ -527,20 +848,43 @@ class Game:
                 self._log.add("The lightning crackles against the wall.", Color.RED)
             elif target_monster is not None:
                 m = target_monster
-                dmg = wand.wand_damage + self._rng.randint(-1, 1)
-                m.hp -= dmg
-                self._log.add(f"The lightning shocks the {m.name} for {dmg}!", Color.CYAN)
-                
-                # Floating damage text and sparks
-                self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (50, 190, 220))
-                self._renderer.add_particles(m.x, m.y, (100, 200, 255), count=12)
+                if getattr(m, "is_chest", False):
+                    if getattr(m, "is_mimic", False):
+                        m.is_chest = False
+                        m.name = "mimic"
+                        m.hp = 15 + m.depth * 5
+                        m.max_hp = m.hp
+                        m.attack = 3 + m.depth
+                        
+                        dmg = wand.wand_damage + self._rng.randint(-1, 1)
+                        m.hp -= dmg
+                        self._log.add(f"The chest reveals itself as a Mimic and takes {dmg} lightning damage!", Color.CYAN)
+                        self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (50, 190, 220))
+                        self._renderer.add_particles(m.x, m.y, (100, 200, 255), count=12)
+                        if not m.is_alive:
+                            self._log.add("The Mimic is shocked to dust!", Color.GREEN)
+                            self._player.kills += 1
+                            if m in self._level.monsters:
+                                self._level.monsters.remove(m)
+                            self._drop_monster_loot(m)
+                    else:
+                        self._log.add("The lightning shocks the chest harmlessly.", Color.DARK_GRAY)
+                        self._renderer.add_particles(m.x, m.y, (100, 200, 255), count=4)
+                else:
+                    dmg = wand.wand_damage + self._rng.randint(-1, 1)
+                    m.hp -= dmg
+                    self._log.add(f"The lightning shocks the {m.name} for {dmg}!", Color.CYAN)
+                    
+                    # Floating damage text and sparks
+                    self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (50, 190, 220))
+                    self._renderer.add_particles(m.x, m.y, (100, 200, 255), count=12)
 
-                if not m.is_alive:
-                    self._log.add(f"You shock the {m.name} to dust!", Color.GREEN)
-                    self._player.kills += 1
-                    if m in self._level.monsters:
-                        self._level.monsters.remove(m)
-                    self._drop_monster_loot(m)
+                    if not m.is_alive:
+                        self._log.add(f"You shock the {m.name} to dust!", Color.GREEN)
+                        self._player.kills += 1
+                        if m in self._level.monsters:
+                            self._level.monsters.remove(m)
+                        self._drop_monster_loot(m)
             else:
                 self._log.add("The lightning dissipates into the dark.", Color.DARK_GRAY)
 
@@ -562,6 +906,7 @@ class Game:
             return False
         self._enter_level(self._player.depth - 1, from_above=False)
         self._log.add(f"You ascend to depth {self._player.depth}.", Color.YELLOW)
+        self._sound.play("stairs")
         
         # Ascent particle flash
         self._renderer.trigger_shake(8.0)
@@ -572,6 +917,8 @@ class Game:
         for m in list(self._level.monsters):
             if not m.is_alive:
                 continue
+            if getattr(m, "is_merchant", False):
+                continue
             if not self._level.tiles[m.x][m.y].visible:
                 continue
 
@@ -580,8 +927,15 @@ class Game:
 
             if abs(dx) + abs(dy) == 1:
                 dmg = max(1, m.attack + self._rng.randint(-1, 1))
+                if getattr(self._player, "char_class", "") == "Knight":
+                    dmg = max(1, dmg - 1)
                 self._player.hp -= dmg
-                self._log.add(f"The {m.name} hits you for {dmg}.", Color.RED)
+                self._sound.play("hit")
+                
+                if getattr(self._player, "char_class", "") == "Knight":
+                    self._log.add(f"The {m.name} hits you for {dmg} (blocked 1).", Color.RED)
+                else:
+                    self._log.add(f"The {m.name} hits you for {dmg}.", Color.RED)
                 
                 # Animations
                 self._renderer.add_bump(m, (self._player.x, self._player.y))
@@ -620,6 +974,59 @@ class Game:
         m.x = nx
         m.y = ny
         return True
+
+    def _buy_shop_item(self, slot_idx: int):
+        merchant = self._active_merchant
+        if not merchant or slot_idx < 0 or slot_idx >= len(merchant.shop_items):
+            return
+
+        item, price, is_sold_out = merchant.shop_items[slot_idx]
+        if is_sold_out:
+            self._log.add("That item is already sold out!", Color.DARK_GRAY)
+            return
+
+        if self._player.coins < price:
+            self._log.add("Not enough gold!", Color.RED)
+            return
+
+        # Handle the custom service (Bless Weapon)
+        if item.name == "bless weapon":
+            weapon = self._player.inventory.equipped_weapon
+            if weapon is None:
+                self._log.add("You have no weapon equipped to bless!", Color.YELLOW)
+                return
+            if weapon.is_enchanted:
+                self._log.add(f"Your {weapon.display_name} is already enchanted!", Color.DARK_GRAY)
+                return
+            
+            # Enchant!
+            self._player.coins -= price
+            weapon.is_enchanted = True
+            self._player.update_appearance()
+            merchant.shop_items[slot_idx][2] = True  # Mark sold out
+            self._log.add(f"Your {weapon.display_name} glows with enchantment!", Color.CYAN)
+            self._sound.play("bless")
+            self._renderer.add_particles(self._player.x, self._player.y, (240, 200, 30), count=25)
+            self._renderer.add_damage_text(self._player.x, self._player.y, "BLESSED!", (240, 200, 30))
+            return
+
+        # Handle standard items (added to backpack)
+        # Check if pack is full
+        if len(self._player.inventory.items) >= 20:
+            self._log.add("Your pack is full!", Color.RED)
+            return
+
+        # Deduct gold and add item
+        self._player.coins -= price
+        self._player.inventory.add(item)
+        merchant.shop_items[slot_idx][2] = True  # Mark sold out
+        self._log.add(f"You bought the {item.name}!", Color.GREEN)
+        self._sound.play("pickup")
+        self._renderer.add_damage_text(self._player.x, self._player.y, "BOUGHT", (50, 200, 70))
+        self._renderer.add_particles(self._player.x, self._player.y, (50, 200, 70), count=10)
+
+
+
 
 
 def _load_scores() -> list[tuple[int, int, int, datetime.datetime]]:

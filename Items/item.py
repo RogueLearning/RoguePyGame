@@ -9,6 +9,7 @@ class ItemKind(Enum):
     WEAPON = "weapon"
     WAND = "wand"
     COIN = "coin"
+    KEY = "key"
 
 
 class Item:
@@ -84,5 +85,14 @@ def create_coin(x: int, y: int, value: int) -> ItemEntity:
     item.color = Color.YELLOW
     item.kind = ItemKind.COIN
     item.coin_value = value
+    return ItemEntity(x=x, y=y, item=item)
+
+
+def create_key(x: int, y: int) -> ItemEntity:
+    item = Item()
+    item.name = "dungeon key"
+    item.glyph = "🔑"
+    item.color = Color.YELLOW
+    item.kind = ItemKind.KEY
     return ItemEntity(x=x, y=y, item=item)
 

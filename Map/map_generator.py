@@ -84,6 +84,21 @@ class MapGenerator:
             bx, by = rooms[room_index].random_point(self._rng)
             level.monsters.append(monster_factory.create_boss(bx, by))
 
+        # Spawn merchant with 50% chance on depth >= 2
+        if depth >= 2 and self._rng.randrange(100) < 50 and len(rooms) > 1:
+            from Entities.merchant import Merchant
+            room_idx = self._rng.randrange(1, len(rooms))
+            mx, my = rooms[room_idx].random_point(self._rng)
+            attempts = 0
+            while (level.monster_at(mx, my) is not None or (mx, my) == stairs) and attempts < 10:
+                mx, my = rooms[room_idx].random_point(self._rng)
+                attempts += 1
+            merchant = Merchant(depth, self._rng)
+            merchant.x = mx
+            merchant.y = my
+            level.monsters.append(merchant)
+
+        spawn_key = False
         for i in range(1, len(rooms)):
             if self._rng.randrange(100) < 20:
                 fx, fy = rooms[i].random_point(self._rng)
@@ -103,6 +118,50 @@ class MapGenerator:
                 ix, iy = rooms[i].random_point(self._rng)
                 if level.item_at(ix, iy) is None:
                     level.items.append(item_factory.create(ix, iy, depth, self._rng))
+
+            # Spawn chests (20% normal, 15% locked, 10% mimic)
+            roll = self._rng.randrange(100)
+            if roll < 15:
+                cx, cy = rooms[i].random_point(self._rng)
+                if level.monster_at(cx, cy) is None and (cx, cy) != stairs:
+                    from Entities.chest import Chest
+                    chest = Chest(is_locked=True, is_mimic=False, depth=depth, rng=self._rng)
+                    chest.x = cx
+                    chest.y = cy
+                    level.monsters.append(chest)
+                    spawn_key = True
+            elif roll < 35:
+                cx, cy = rooms[i].random_point(self._rng)
+                if level.monster_at(cx, cy) is None and (cx, cy) != stairs:
+                    from Entities.chest import Chest
+                    chest = Chest(is_locked=False, is_mimic=False, depth=depth, rng=self._rng)
+                    chest.x = cx
+                    chest.y = cy
+                    level.monsters.append(chest)
+            elif roll < 45:
+                cx, cy = rooms[i].random_point(self._rng)
+                if level.monster_at(cx, cy) is None and (cx, cy) != stairs:
+                    from Entities.chest import Chest
+                    chest = Chest(is_locked=False, is_mimic=True, depth=depth, rng=self._rng)
+                    chest.x = cx
+                    chest.y = cy
+                    level.monsters.append(chest)
+
+        if spawn_key:
+            key_placed = False
+            for attempts in range(50):
+                room_idx = self._rng.randrange(1, len(rooms))
+                kx, ky = rooms[room_idx].random_point(self._rng)
+                if level.item_at(kx, ky) is None and level.monster_at(kx, ky) is None and (kx, ky) != stairs:
+                    from Items.item import create_key
+                    level.items.append(create_key(kx, ky))
+                    key_placed = True
+                    break
+            if not key_placed:
+                kx, ky = rooms[0].random_point(self._rng)
+                if level.item_at(kx, ky) is None:
+                    from Items.item import create_key
+                    level.items.append(create_key(kx, ky))
 
         return level
 

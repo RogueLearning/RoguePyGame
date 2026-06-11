@@ -219,7 +219,7 @@ class Renderer:
                 self.trigger_shake(8.0)
                 proj["callback"]()
 
-    def render(self, level: DungeonLevel, player: Player, log: MessageLog, show_inventory=False):
+    def render(self, level: DungeonLevel, player: Player, log: MessageLog, show_inventory=False, show_shop=None):
         # Tick calculations
         self.update_animations()
 
@@ -260,6 +260,10 @@ class Renderer:
         # Draw inventory modal if requested
         if show_inventory:
             self._draw_inventory_overlay(player)
+
+        # Draw shop modal if requested
+        if show_shop:
+            self._draw_shop_overlay(player, show_shop)
 
         pygame.display.flip()
 
@@ -388,9 +392,21 @@ class Renderer:
                 self._draw_wand(rect, color)
             elif ie.item.kind.value == "coin":
                 self._draw_coin(rect)
+            elif ie.item.kind.value == "key":
+                self._draw_key(rect)
             else:
                 # Fallback circular pouch item
                 pygame.draw.circle(self._screen, color, rect.center, 6)
+
+    def _draw_key(self, rect: pygame.Rect):
+        # Golden Key drawing
+        # Head ring
+        pygame.draw.circle(self._screen, (235, 180, 25), (rect.centerx - 4, rect.centery), 4, 1)
+        # Shaft
+        pygame.draw.line(self._screen, (235, 180, 25), (rect.centerx, rect.centery), (rect.centerx + 8, rect.centery), 2)
+        # Teeth
+        pygame.draw.line(self._screen, (235, 180, 25), (rect.centerx + 5, rect.centery), (rect.centerx + 5, rect.centery + 3), 2)
+        pygame.draw.line(self._screen, (235, 180, 25), (rect.centerx + 7, rect.centery), (rect.centerx + 7, rect.centery + 3), 2)
 
     def _draw_coin(self, rect: pygame.Rect):
         # Shiny Gold Coin drawing
@@ -559,6 +575,58 @@ class Renderer:
             # Horn spikes
             pygame.draw.polygon(self._screen, (75, 75, 80), [(rect.centerx - 7, rect.top + 7), (rect.centerx - 11, rect.top + 2), (rect.centerx - 4, rect.top + 8)])
             pygame.draw.polygon(self._screen, (75, 75, 80), [(rect.centerx + 7, rect.top + 7), (rect.centerx + 11, rect.top + 2), (rect.centerx + 4, rect.top + 8)])
+        elif name == "merchant":
+            # Cozy brown hooded figure with a gold collar/emblem
+            # Cloak body
+            cloak_rect = pygame.Rect(rect.left + 4, rect.centery - 2, 24, 16)
+            pygame.draw.ellipse(self._screen, (100, 65, 35), cloak_rect)
+            
+            # Hood
+            pygame.draw.circle(self._screen, (120, 80, 50), (rect.centerx, rect.centery - 4), 9)
+            
+            # Face opening
+            pygame.draw.circle(self._screen, (25, 20, 15), (rect.centerx, rect.centery - 4), 6)
+            
+            # Glowing gold eyes
+            pygame.draw.circle(self._screen, (255, 215, 0), (rect.centerx - 2, rect.centery - 5), 1)
+            pygame.draw.circle(self._screen, (255, 215, 0), (rect.centerx + 2, rect.centery - 5), 1)
+            
+            # Gold emblem/collar
+            emblem_rect = pygame.Rect(rect.centerx - 3, rect.centery + 3, 6, 6)
+            pygame.draw.ellipse(self._screen, (255, 215, 0), emblem_rect)
+        elif name in ("chest", "locked chest"):
+            # Draw chest box (wooden container)
+            box_rect = pygame.Rect(rect.left + 5, rect.centery - 4, 22, 16)
+            # Brown body
+            pygame.draw.rect(self._screen, (139, 69, 19), box_rect, border_radius=2)
+            # Gold banding on left and right edges
+            pygame.draw.rect(self._screen, (220, 180, 40), (rect.left + 5, rect.centery - 4, 3, 16))
+            pygame.draw.rect(self._screen, (220, 180, 40), (rect.right - 8, rect.centery - 4, 3, 16))
+            # Top lid line
+            pygame.draw.line(self._screen, (90, 45, 10), (rect.left + 5, rect.centery - 4), (rect.right - 6, rect.centery - 4), 2)
+            
+            # Draw Lock/Keyhole
+            lock_color = (255, 215, 0) if name == "locked chest" else (180, 180, 185)
+            # Lock plate
+            pygame.draw.rect(self._screen, lock_color, (rect.centerx - 3, rect.centery + 1, 6, 6), border_radius=1)
+            # Tiny keyhole dot
+            pygame.draw.circle(self._screen, (30, 30, 30), (rect.centerx, rect.centery + 4), 1)
+        elif name == "mimic":
+            # Gaping chest with teeth and tongue
+            # Base (brown wood)
+            pygame.draw.rect(self._screen, (139, 69, 19), (rect.left + 5, rect.centery + 2, 22, 10), border_radius=1)
+            # Gaping mouth (red surface inside)
+            pygame.draw.rect(self._screen, (200, 30, 30), (rect.left + 5, rect.centery - 6, 22, 9))
+            # Upper lid askew
+            pygame.draw.rect(self._screen, (110, 50, 15), (rect.left + 4, rect.centery - 12, 24, 7), border_radius=1)
+            
+            # Teeth (white points)
+            pygame.draw.polygon(self._screen, (250, 250, 250), [(rect.left + 7, rect.centery - 6), (rect.left + 9, rect.centery - 2), (rect.left + 11, rect.centery - 6)])
+            pygame.draw.polygon(self._screen, (250, 250, 250), [(rect.left + 15, rect.centery - 6), (rect.left + 17, rect.centery - 2), (rect.left + 19, rect.centery - 6)])
+            pygame.draw.polygon(self._screen, (250, 250, 250), [(rect.left + 11, rect.centery + 3), (rect.left + 13, rect.centery - 1), (rect.left + 15, rect.centery + 3)])
+            
+            # Hanging pink tongue
+            pygame.draw.ellipse(self._screen, (230, 80, 130), (rect.centerx - 2, rect.centery - 3, 6, 10))
         else:
             # Threat marker dot
             pygame.draw.circle(self._screen, color, rect.center, 8)
@@ -568,8 +636,12 @@ class Renderer:
         if enchanted:
             pygame.draw.circle(self._screen, (240, 200, 30), rect.center, 13, 2)
 
-        # Draw animated spritesheet if loaded
-        if self._spritesheet and player:
+        char_class = "Wizard"
+        if player and hasattr(player, "char_class"):
+            char_class = player.char_class
+
+        # Draw animated spritesheet if loaded (for Knight class only)
+        if char_class == "Knight" and self._spritesheet and player:
             dir_rows = {"DOWN": 0, "UP": 1, "LEFT": 2, "RIGHT": 3}
             row = dir_rows.get(player.facing, 0)
             
@@ -588,20 +660,56 @@ class Renderer:
             self._screen.blit(self._spritesheet, rect.topleft, src_rect)
             return
 
-        # Wizard Cloak (deep purple circle) fallback
-        pygame.draw.circle(self._screen, (100, 45, 175), rect.center, 9)
-        # Gold emblem/star on cloak
-        pygame.draw.circle(self._screen, (245, 205, 35), (rect.centerx, rect.centery + 2), 2)
+        # Fallback vector sprites for classes
+        if char_class == "Knight":
+            # Plate armor chestplate
+            pygame.draw.rect(self._screen, (130, 130, 140), (rect.centerx - 7, rect.centery - 2, 14, 11), border_radius=2)
+            # Steel Helmet
+            pygame.draw.circle(self._screen, (170, 170, 180), (rect.centerx, rect.centery - 6), 6)
+            # Visor slot
+            pygame.draw.rect(self._screen, (35, 35, 40), (rect.centerx - 4, rect.centery - 7, 8, 2))
+            # Red plume
+            pygame.draw.circle(self._screen, (220, 40, 40), (rect.centerx, rect.top + 5), 2)
+            # Wooden shield on arm
+            pygame.draw.polygon(self._screen, (139, 69, 19), [
+                (rect.centerx - 11, rect.centery + 1),
+                (rect.centerx - 6, rect.centery + 1),
+                (rect.centerx - 8, rect.centery + 8)
+            ])
+            pygame.draw.polygon(self._screen, (235, 180, 25), [
+                (rect.centerx - 11, rect.centery + 1),
+                (rect.centerx - 6, rect.centery + 1),
+                (rect.centerx - 8, rect.centery + 8)
+            ], width=1)
+        elif char_class == "Rogue":
+            # Green Rogue drawing
+            # Cloak forest green
+            pygame.draw.circle(self._screen, (34, 110, 56), rect.center, 8)
+            # Dark cowl/hood
+            pygame.draw.circle(self._screen, (45, 55, 50), (rect.centerx, rect.centery - 4), 6)
+            # Shadowy mask inside cowl
+            pygame.draw.circle(self._screen, (20, 22, 20), (rect.centerx, rect.centery - 4), 4)
+            # Glinting eyes
+            pygame.draw.circle(self._screen, (180, 220, 255), (rect.centerx - 1, rect.centery - 4.5), 1)
+            pygame.draw.circle(self._screen, (180, 220, 255), (rect.centerx + 1, rect.centery - 4.5), 1)
+            # Steel dagger in hand
+            pygame.draw.line(self._screen, (200, 200, 205), (rect.centerx + 5, rect.centery), (rect.centerx + 10, rect.centery - 5), 2)
+            pygame.draw.line(self._screen, (120, 80, 40), (rect.centerx + 4, rect.centery + 1), (rect.centerx + 6, rect.centery - 1), 2)
+        else:
+            # Wizard Cloak (deep purple circle)
+            pygame.draw.circle(self._screen, (100, 45, 175), rect.center, 9)
+            # Gold emblem/star on cloak
+            pygame.draw.circle(self._screen, (245, 205, 35), (rect.centerx, rect.centery + 2), 2)
 
-        # Conical Wizard Hat
-        hat_points = [
-            (rect.centerx, rect.top + 3),
-            (rect.centerx - 8, rect.centery - 2),
-            (rect.centerx + 8, rect.centery - 2)
-        ]
-        pygame.draw.polygon(self._screen, (25, 45, 120), hat_points)
-        # Yellow brim
-        pygame.draw.line(self._screen, (245, 205, 35), (rect.centerx - 10, rect.centery - 2), (rect.centerx + 10, rect.centery - 2), 2)
+            # Conical Wizard Hat
+            hat_points = [
+                (rect.centerx, rect.top + 3),
+                (rect.centerx - 8, rect.centery - 2),
+                (rect.centerx + 8, rect.centery - 2)
+            ]
+            pygame.draw.polygon(self._screen, (25, 45, 120), hat_points)
+            # Yellow brim
+            pygame.draw.line(self._screen, (245, 205, 35), (rect.centerx - 10, rect.centery - 2), (rect.centerx + 10, rect.centery - 2), 2)
 
     def _draw_projectiles(self, shake_x: int, shake_y: int):
         for proj in self._projectiles:
@@ -696,15 +804,16 @@ class Renderer:
 
         # Header Status
         self._draw_text(sx + 20, 20, "-- STATUS --", color_rgb(Color.YELLOW), font=self._header_font)
-        self._draw_text(sx + 20, 50, f"Depth: {player.depth} (max {player.max_depth})", color_rgb(Color.WHITE))
+        self._draw_text(sx + 20, 48, f"Class: {getattr(player, 'char_class', 'Wizard')}", color_rgb(Color.CYAN), font=self._header_font)
+        self._draw_text(sx + 20, 76, f"Depth: {player.depth} (max {player.max_depth})", color_rgb(Color.WHITE))
 
         # HP bar
-        self._draw_text(sx + 20, 80, "HP: ", color_rgb(Color.WHITE))
+        self._draw_text(sx + 20, 106, "HP: ", color_rgb(Color.WHITE))
         hp_ratio = player.hp / player.max_hp
         bar_w = 180
         bar_h = 16
         bx = sx + 60
-        by = 80
+        by = 106
         
         # Border box
         pygame.draw.rect(self._screen, (45, 45, 50), (bx, by, bar_w, bar_h), border_radius=3)
@@ -727,13 +836,13 @@ class Renderer:
         self._screen.blit(hp_surf, (bx + (bar_w - hp_surf.get_width()) // 2, by - 1))
 
         # Status text details
-        self._draw_text(sx + 20, 110, f"ATK:   {player.attack}", color_rgb(Color.WHITE))
-        self._draw_text(sx + 20, 140, f"Kills: {player.kills}", color_rgb(Color.WHITE))
-        self._draw_text(sx + 20, 170, f"Gold:  {player.coins}", (240, 195, 30), font=self._header_font)
-        self._draw_text(sx + 20, 200, f"Score: {player.score}", color_rgb(Color.CYAN), font=self._header_font)
+        self._draw_text(sx + 20, 136, f"ATK:   {player.attack}", color_rgb(Color.WHITE))
+        self._draw_text(sx + 20, 166, f"Kills: {player.kills}", color_rgb(Color.WHITE))
+        self._draw_text(sx + 20, 196, f"Gold:  {player.coins}", (240, 195, 30), font=self._header_font)
+        self._draw_text(sx + 20, 226, f"Score: {player.score}", color_rgb(Color.CYAN), font=self._header_font)
 
         # Keyboard Controls Cheat Sheet
-        self._draw_text(sx + 20, 240, "-- CONTROLS --", color_rgb(Color.YELLOW), font=self._header_font)
+        self._draw_text(sx + 20, 260, "-- CONTROLS --", color_rgb(Color.YELLOW), font=self._header_font)
         controls = [
             ("Arrows", "Move / Bump Attack"),
             ("G Key", "Pick up item"),
@@ -742,7 +851,7 @@ class Renderer:
             ("Enter", "Use stairs"),
             ("Q Key", "Quit game"),
         ]
-        curr_y = 270
+        curr_y = 290
         for key, desc in controls:
             self._draw_text(sx + 20, curr_y, f"{key:6}: {desc}", color_rgb(Color.GRAY))
             curr_y += 24
@@ -826,6 +935,8 @@ class Renderer:
                     detail = f"+{item.attack_bonus} atk"
                 elif item.kind.value == "wand":
                     detail = f"{item.wand_damage} dmg, {item.charges} chg"
+                elif item.kind.value == "key":
+                    detail = "opens locked chests"
                 else:
                     detail = ""
 
@@ -854,6 +965,114 @@ class Renderer:
                 detail_c = color_rgb(Color.GREEN) if is_equipped else color_rgb(Color.GRAY)
                 detail_surf = self._ui_font.render(f" [{detail}]{equipped}", True, detail_c)
                 self._screen.blit(detail_surf, (item_x + 30 + name_surf.get_width(), item_y + 3))
+
+    def _draw_shop_overlay(self, player: Player, merchant):
+        # Create dark translucent screen overlay surface
+        overlay = pygame.Surface((TOTAL_WIDTH, TOTAL_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        self._screen.blit(overlay, (0, 0))
+
+        # Modal Panel rect
+        w, h = 540, 436
+        mx = (MAP_PIXEL_WIDTH - w) // 2
+        my = (MAP_PIXEL_HEIGHT - h) // 2
+        modal_rect = pygame.Rect(mx, my, w, h)
+        
+        # Modal shadow / border (warm wood theme)
+        pygame.draw.rect(self._screen, (28, 22, 16), modal_rect, border_radius=8)
+        pygame.draw.rect(self._screen, (235, 180, 25), modal_rect, width=2, border_radius=8)
+
+        # Header Title
+        self._draw_text(mx + 25, my + 20, "-- MERCHANT SHOP --", (235, 180, 25), font=self._header_font)
+        self._draw_text(mx + 25, my + 45, "Keys [ 1 - 4 ] or [ a - d ] to purchase. ESC to exit.", (180, 180, 180))
+        
+        # Player Gold
+        gold_text = f"Your Gold: {player.coins}g"
+        gold_surf = self._header_font.render(gold_text, True, (235, 180, 25))
+        self._screen.blit(gold_surf, (mx + w - gold_surf.get_width() - 25, my + 20))
+        
+        pygame.draw.line(self._screen, (65, 50, 40), (mx + 20, my + 75), (mx + w - 20, my + 75), 2)
+
+        # 4 Shop Slots
+        for i in range(4):
+            item, price, is_sold_out = merchant.shop_items[i]
+            
+            slot_x = mx + 20
+            slot_y = my + 90 + i * 80
+            slot_w = w - 40
+            slot_h = 70
+            slot_rect = pygame.Rect(slot_x, slot_y, slot_w, slot_h)
+            
+            # Select colors based on status
+            if is_sold_out:
+                bg_color = (18, 16, 15)
+                border_color = (45, 40, 38)
+            else:
+                bg_color = (36, 30, 26)
+                border_color = (65, 52, 42)
+                
+            pygame.draw.rect(self._screen, bg_color, slot_rect, border_radius=6)
+            pygame.draw.rect(self._screen, border_color, slot_rect, width=1, border_radius=6)
+            
+            # Key indicator button (e.g. "1")
+            key_box_rect = pygame.Rect(slot_x + 10, slot_y + 15, 24, 24)
+            pygame.draw.rect(self._screen, (24, 20, 18), key_box_rect, border_radius=4)
+            pygame.draw.rect(self._screen, (235, 180, 25) if not is_sold_out else (100, 100, 100), key_box_rect, width=1, border_radius=4)
+            
+            key_surf = self._header_font.render(str(i + 1), True, (235, 180, 25) if not is_sold_out else (120, 120, 120))
+            self._screen.blit(key_surf, (key_box_rect.centerx - key_surf.get_width() // 2, key_box_rect.centery - key_surf.get_height() // 2))
+            
+            # Render item sprite next to key label
+            icon_rect = pygame.Rect(slot_x + 45, slot_y + (slot_h - 32) // 2, 32, 32)
+            icon_color = color_rgb(item.color)
+            if is_sold_out:
+                icon_color = (80, 80, 80)
+            
+            if item.name == "bless weapon":
+                # Draw a glowing yellow star / sparkle
+                star_color = (255, 215, 0) if not is_sold_out else (80, 80, 80)
+                pygame.draw.circle(self._screen, star_color, icon_rect.center, 5)
+                pygame.draw.line(self._screen, star_color, (icon_rect.centerx - 10, icon_rect.centery), (icon_rect.centerx + 10, icon_rect.centery), 2)
+                pygame.draw.line(self._screen, star_color, (icon_rect.centerx, icon_rect.centery - 10), (icon_rect.centerx, icon_rect.centery + 10), 2)
+            elif item.kind.value == "healing_potion":
+                self._draw_potion(icon_rect, icon_color)
+            elif item.kind.value == "weapon":
+                self._draw_weapon(icon_rect, icon_color)
+            elif item.kind.value == "wand":
+                self._draw_wand(icon_rect, icon_color)
+                
+            # Item Name
+            item_name = item.display_name.capitalize()
+            name_color = color_rgb(item.color) if not is_sold_out else (120, 120, 120)
+            name_surf = self._header_font.render(item_name, True, name_color)
+            self._screen.blit(name_surf, (slot_x + 90, slot_y + 12))
+            
+            # Item description
+            if item.name == "bless weapon":
+                desc = "Blesses equipped weapon. Needed to harm the boss."
+            elif item.kind.value == "healing_potion":
+                desc = f"Restores {item.heal_amount} HP. Consumed from inventory."
+            elif item.kind.value == "weapon":
+                desc = f"Melee weapon: provides +{item.attack_bonus} attack bonus."
+            elif item.kind.value == "wand":
+                desc = f"Ranged zap. Pierces. Deals {item.wand_damage} dmg. {item.charges} chg."
+            else:
+                desc = ""
+                
+            desc_color = (180, 180, 180) if not is_sold_out else (100, 100, 100)
+            desc_surf = self._ui_font.render(desc, True, desc_color)
+            self._screen.blit(desc_surf, (slot_x + 90, slot_y + 40))
+            
+            # Price / Sold out
+            if is_sold_out:
+                price_text = "[ SOLD OUT ]"
+                price_color = (180, 50, 50)
+            else:
+                price_text = f"{price}g"
+                price_color = (255, 215, 0)
+                
+            price_surf = self._header_font.render(price_text, True, price_color)
+            self._screen.blit(price_surf, (slot_x + slot_w - price_surf.get_width() - 20, slot_y + (slot_h - price_surf.get_height()) // 2))
 
     def render_title_screen(self, highscores):
         self._screen.fill((10, 10, 14))
@@ -900,6 +1119,176 @@ class Renderer:
         
         exit_surf = self._ui_font.render("Press Q to Quit", True, color_rgb(Color.GRAY))
         self._screen.blit(exit_surf, ((TOTAL_WIDTH - exit_surf.get_width()) // 2, 640))
+
+        pygame.display.flip()
+
+    def render_class_select(self, selected_class_idx: int):
+        self._screen.fill((10, 10, 14))
+
+        # Background sparkles
+        for _ in range(30):
+            x = random.randint(10, TOTAL_WIDTH - 10)
+            y = random.randint(10, TOTAL_HEIGHT - 10)
+            size = random.choice([1, 2])
+            pygame.draw.circle(self._screen, (60, 60, 80), (x, y), size)
+
+        # Main Title Header
+        title_surf = self._title_font.render("SELECT YOUR HERO CLASS", True, color_rgb(Color.YELLOW))
+        self._screen.blit(title_surf, ((TOTAL_WIDTH - title_surf.get_width()) // 2, 70))
+
+        # 3 Class Cards Setup
+        classes_data = [
+            {
+                "name": "KNIGHT",
+                "hp": "Max HP: 40",
+                "weapon": "Weapon: Shortsword (+2 ATK)",
+                "desc": [
+                    "A heavily armored veteran.",
+                    "Starts with a Shortsword.",
+                    "Plate armor blocks 1 damage",
+                    "from all monster attacks."
+                ],
+                "color": (200, 200, 210),
+                "key_hint": "Press 1 / K to Select"
+            },
+            {
+                "name": "WIZARD",
+                "hp": "Max HP: 20",
+                "weapon": "Weapon: Wand of Lightning",
+                "desc": [
+                    "Master of arcane forces.",
+                    "Starts with a readied",
+                    "Wand of Lightning that",
+                    "charges slowly over time."
+                ],
+                "color": (155, 80, 230),
+                "key_hint": "Press 2 / W to Select"
+            },
+            {
+                "name": "ROGUE",
+                "hp": "Max HP: 30",
+                "weapon": "Weapon: Dagger (+1 ATK)",
+                "desc": [
+                    "A swift, deadly shadow.",
+                    "Moves faster (6-frame CD).",
+                    "Dagger attacks have a 30%",
+                    "chance for double CRIT."
+                ],
+                "color": (46, 196, 120),
+                "key_hint": "Press 3 / R to Select"
+            }
+        ]
+
+        card_w, card_h = 320, 380
+        card_y = 160
+        gap = 40
+        start_x = (TOTAL_WIDTH - (3 * card_w + 2 * gap)) // 2
+
+        for idx, data in enumerate(classes_data):
+            card_x = start_x + idx * (card_w + gap)
+            card_rect = pygame.Rect(card_x, card_y, card_w, card_h)
+
+            selected = (idx == selected_class_idx)
+            
+            # Select background and border colors
+            if selected:
+                bg_color = (36, 30, 26)
+                border_color = (255, 215, 0)
+                border_width = 3
+            else:
+                bg_color = (18, 18, 22)
+                border_color = (60, 60, 65)
+                border_width = 1
+
+            pygame.draw.rect(self._screen, bg_color, card_rect, border_radius=8)
+            pygame.draw.rect(self._screen, border_color, card_rect, width=border_width, border_radius=8)
+
+            # Title
+            name_surf = self._header_font.render(data["name"], True, border_color if selected else (200, 200, 200))
+            self._screen.blit(name_surf, (card_x + (card_w - name_surf.get_width()) // 2, card_y + 20))
+
+            # Stats (HP and Weapon)
+            hp_surf = self._ui_font.render(data["hp"], True, (255, 255, 255))
+            self._screen.blit(hp_surf, (card_x + (card_w - hp_surf.get_width()) // 2, card_y + 55))
+            
+            wpn_surf = self._ui_font.render(data["weapon"], True, color_rgb(Color.CYAN))
+            self._screen.blit(wpn_surf, (card_x + (card_w - wpn_surf.get_width()) // 2, card_y + 75))
+
+            # Vector illustrations in center
+            icon_center_x = card_x + card_w // 2
+            icon_center_y = card_y + 160
+            
+            if data["name"] == "KNIGHT":
+                # Knight visual
+                # Plate body
+                pygame.draw.rect(self._screen, (130, 130, 140), (icon_center_x - 14, icon_center_y - 2, 28, 22), border_radius=4)
+                # Helmet
+                pygame.draw.circle(self._screen, (170, 170, 180), (icon_center_x, icon_center_y - 12), 12)
+                # Visor slot
+                pygame.draw.rect(self._screen, (35, 35, 40), (icon_center_x - 8, icon_center_y - 14, 16, 3))
+                # Red plume
+                pygame.draw.circle(self._screen, (220, 40, 40), (icon_center_x, icon_center_y - 28), 5)
+                # Wooden shield
+                pygame.draw.polygon(self._screen, (139, 69, 19), [
+                    (icon_center_x - 24, icon_center_y + 4),
+                    (icon_center_x - 14, icon_center_y + 4),
+                    (icon_center_x - 19, icon_center_y + 18)
+                ])
+                pygame.draw.polygon(self._screen, (235, 180, 25), [
+                    (icon_center_x - 24, icon_center_y + 4),
+                    (icon_center_x - 14, icon_center_y + 4),
+                    (icon_center_x - 19, icon_center_y + 18)
+                ], width=1)
+                
+            elif data["name"] == "WIZARD":
+                # Wizard visual
+                # Purple cloak
+                pygame.draw.circle(self._screen, (100, 45, 175), (icon_center_x, icon_center_y), 15)
+                # Gold emblem
+                pygame.draw.circle(self._screen, (245, 205, 35), (icon_center_x, icon_center_y + 3), 3)
+                # Conical Hat
+                hat_points = [
+                    (icon_center_x, icon_center_y - 36),
+                    (icon_center_x - 13, icon_center_y - 6),
+                    (icon_center_x + 13, icon_center_y - 6)
+                ]
+                pygame.draw.polygon(self._screen, (25, 45, 120), hat_points)
+                # Yellow brim
+                pygame.draw.line(self._screen, (245, 205, 35), (icon_center_x - 16, icon_center_y - 6), (icon_center_x + 16, icon_center_y - 6), 3)
+                
+            elif data["name"] == "ROGUE":
+                # Rogue visual
+                # Cloak forest green
+                pygame.draw.circle(self._screen, (34, 110, 56), (icon_center_x, icon_center_y), 14)
+                # Dark hood
+                pygame.draw.circle(self._screen, (45, 55, 50), (icon_center_x, icon_center_y - 6), 10)
+                # Face shadow
+                pygame.draw.circle(self._screen, (20, 22, 20), (icon_center_x, icon_center_y - 6), 7)
+                # Glinting blue eyes
+                pygame.draw.circle(self._screen, (180, 220, 255), (icon_center_x - 3, icon_center_y - 7), 1.5)
+                pygame.draw.circle(self._screen, (180, 220, 255), (icon_center_x + 3, icon_center_y - 7), 1.5)
+                # Dagger (steel blade, brown hilt)
+                pygame.draw.line(self._screen, (200, 200, 205), (icon_center_x + 10, icon_center_y + 2), (icon_center_x + 20, icon_center_y - 8), 3)
+                pygame.draw.line(self._screen, (120, 80, 40), (icon_center_x + 8, icon_center_y + 4), (icon_center_x + 11, icon_center_y + 1), 3)
+
+            # Descriptions stacked vertically
+            desc_y = card_y + 230
+            for desc_line in data["desc"]:
+                d_surf = self._ui_font.render(desc_line, True, (170, 170, 175))
+                self._screen.blit(d_surf, (card_x + (card_w - d_surf.get_width()) // 2, desc_y))
+                desc_y += 20
+
+            # Direct hotkey binding info at bottom of card
+            k_surf = self._ui_font.render(data["key_hint"], True, color_rgb(Color.GRAY))
+            self._screen.blit(k_surf, (card_x + (card_w - k_surf.get_width()) // 2, card_y + 345))
+
+        # Instructions / Navigation Prompt
+        nav_text = "Use LEFT / RIGHT arrows or A / D to navigate. Press ENTER to select."
+        nav_surf = self._header_font.render(nav_text, True, color_rgb(Color.GREEN))
+        self._screen.blit(nav_surf, ((TOTAL_WIDTH - nav_surf.get_width()) // 2, 560))
+        
+        esc_surf = self._ui_font.render("Press ESC to return to Title Screen", True, color_rgb(Color.GRAY))
+        self._screen.blit(esc_surf, ((TOTAL_WIDTH - esc_surf.get_width()) // 2, 600))
 
         pygame.display.flip()
 
