@@ -95,6 +95,11 @@ class SoundManager:
                     return 100 - t * 200
             self._sounds["death"] = self._synthesize(death_freq, duration=0.6, volume=0.2, wave_type="sine")
 
+            # 11. Bow shoot Sound (triangle wave release twang)
+            def shoot_freq(t):
+                return 400 + math.sin(t * 120) * 100 - t * 600
+            self._sounds["shoot"] = self._synthesize(shoot_freq, duration=0.15, volume=0.12, wave_type="triangle")
+
         except Exception as e:
             print(f"Sound Manager: failed to synthesize retro sounds ({e}). Disabling audio.")
             self.enabled = False

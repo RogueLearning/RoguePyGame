@@ -48,6 +48,11 @@ class Renderer:
         self._shake_decay = 0.85
         self._frame_count = 0
 
+        # Slash & Flash Animation states
+        self._slashes = []
+        self._flash_alpha = 0.0
+        self._flash_color = (255, 255, 255)
+
         # Load animated spritesheet
         self._spritesheet = None
         try:
@@ -89,6 +94,20 @@ class Renderer:
 
     def trigger_shake(self, intensity=6.0):
         self._shake_intensity = intensity
+
+    def add_slash(self, tile_x: int, tile_y: int, direction: str, color=(240, 240, 245)):
+        self._slashes.append({
+            "x": tile_x,
+            "y": tile_y,
+            "direction": direction,
+            "color": color,
+            "life": 1.0,
+            "max_life": 1.0
+        })
+
+    def trigger_flash(self, alpha=160, color=(160, 220, 255)):
+        self._flash_alpha = float(alpha)
+        self._flash_color = color
 
     def add_damage_text(self, tile_x: int, tile_y: int, text: str, color: tuple[int, int, int]):
         self._damage_texts.append({
@@ -219,6 +238,16 @@ class Renderer:
                 self.trigger_shake(8.0)
                 proj["callback"]()
 
+        # 6. Update Screen Flash Decay
+        if self._flash_alpha > 0:
+            self._flash_alpha = max(0.0, self._flash_alpha - 15.0)
+
+        # 7. Update Melee Slashes
+        for s in list(self._slashes):
+            s["life"] -= 0.12
+            if s["life"] <= 0:
+                self._slashes.remove(s)
+
     def render(self, level: DungeonLevel, player: Player, log: MessageLog, show_inventory=False, show_shop=None):
         # Tick calculations
         self.update_animations()
@@ -242,6 +271,9 @@ class Renderer:
         # Render Entities
         self._draw_entities(level, player, shake_x, shake_y)
 
+        # Render Melee Slashes
+        self._draw_slashes(shake_x, shake_y)
+
         # Render Fireball Projectiles (Visuals)
         self._draw_projectiles(shake_x, shake_y)
 
@@ -250,6 +282,13 @@ class Renderer:
 
         # Render Damage text overlay
         self._draw_damage_texts(shake_x, shake_y)
+
+        # Render Screen Flash Overlay (only over map viewport)
+        if self._flash_alpha > 0:
+            flash_surf = pygame.Surface((MAP_PIXEL_WIDTH, MAP_PIXEL_HEIGHT), pygame.SRCALPHA)
+            flash_color_with_alpha = self._flash_color + (int(self._flash_alpha),)
+            flash_surf.fill(flash_color_with_alpha)
+            self._screen.blit(flash_surf, (0, 0))
 
         # Render Sidebar (No shake)
         self._draw_sidebar(player)
@@ -270,6 +309,7 @@ class Renderer:
     def _draw_map(self, level: DungeonLevel, shake_x: int, shake_y: int):
         w = min(MAP_WIDTH, level.width)
         h = min(MAP_HEIGHT, level.height)
+        is_overworld = getattr(level, "is_overworld", False)
         
         for x in range(w):
             for y in range(h):
@@ -282,39 +322,167 @@ class Renderer:
                 # Fetch basic tile color definitions
                 visible = t.visible
 
-                if t.type == TileType.WALL:
-                    color = color_rgb(Color.DARK_CYAN) if visible else color_rgb(Color.DARK_BLUE)
-                    self._draw_brick_wall(rect, color)
-                elif t.type == TileType.FLOOR:
-                    color = (36, 32, 28) if visible else (20, 20, 24)
-                    self._draw_floor(rect, color, visible)
-                elif t.type == TileType.STAIRS_DOWN:
-                    color = (25, 23, 20) if visible else (16, 16, 20)
-                    self._draw_floor(rect, color, visible)
-                    stairs_color = color_rgb(Color.YELLOW) if visible else color_rgb(Color.DARK_YELLOW)
-                    self._draw_stairs_down(rect, stairs_color)
-                elif t.type == TileType.STAIRS_UP:
-                    color = (25, 23, 20) if visible else (16, 16, 20)
-                    self._draw_floor(rect, color, visible)
-                    stairs_color = color_rgb(Color.WHITE) if visible else color_rgb(Color.GRAY)
-                    self._draw_stairs_up(rect, stairs_color)
-                elif t.type == TileType.FOUNTAIN:
-                    color = (25, 23, 20) if visible else (16, 16, 20)
-                    self._draw_floor(rect, color, visible)
-                    self._draw_fountain(rect, visible)
+                if is_overworld:
+                    # Determine overworld quadrant
+                    in_town = (x < 15 and y < 9)
+                    in_farm = (x >= 15 and y < 9)
+                    in_cemetery = (x < 15 and y >= 9)
+                    in_field = (x >= 15 and y >= 9)
+                    
+                    if t.type == TileType.WALL:
+                        if in_town:
+                            color = (120, 80, 50) if visible else (70, 45, 30)
+                            self._draw_wooden_wall(rect, color)
+                        elif in_farm:
+                            color = (95, 70, 45) if visible else (55, 40, 25)
+                            self._draw_fence(rect, color)
+                        elif in_cemetery:
+                            color = (80, 80, 80) if visible else (45, 45, 45)
+                            self._draw_stone_wall(rect, color)
+                        else:
+                            color = (34, 120, 40) if visible else (20, 70, 25)
+                            self._draw_hedge(rect, color)
+                            
+                    elif t.type == TileType.FLOOR:
+                        if in_town:
+                            color = (55, 52, 50) if visible else (32, 30, 28)
+                            self._draw_cobblestone(rect, color, visible)
+                        elif in_farm:
+                            color = (65, 48, 32) if visible else (38, 28, 20)
+                            self._draw_tilled_soil(rect, color, visible)
+                        elif in_cemetery:
+                            color = (40, 45, 40) if visible else (24, 28, 24)
+                            self._draw_dark_grass(rect, color, visible)
+                        else:
+                            color = (34, 85, 34) if visible else (20, 50, 20)
+                            self._draw_grass(rect, color, visible)
+                            
+                    elif t.type == TileType.STAIRS_DOWN:
+                        if in_farm:
+                            self._draw_cellar_hatch(rect, visible)
+                        elif in_cemetery:
+                            self._draw_crypt_entrance(rect, visible)
+                        else:
+                            self._draw_cave_entrance(rect, visible)
+                else:
+                    if t.type == TileType.WALL:
+                        color = color_rgb(Color.DARK_CYAN) if visible else color_rgb(Color.DARK_BLUE)
+                        self._draw_brick_wall(rect, color)
+                    elif t.type == TileType.FLOOR:
+                        color = (36, 32, 28) if visible else (20, 20, 24)
+                        self._draw_floor(rect, color, visible)
+                    elif t.type == TileType.STAIRS_DOWN:
+                        color = (25, 23, 20) if visible else (16, 16, 20)
+                        self._draw_floor(rect, color, visible)
+                        stairs_color = color_rgb(Color.YELLOW) if visible else color_rgb(Color.DARK_YELLOW)
+                        self._draw_stairs_down(rect, stairs_color)
+                    elif t.type == TileType.STAIRS_UP:
+                        color = (25, 23, 20) if visible else (16, 16, 20)
+                        self._draw_floor(rect, color, visible)
+                        stairs_color = color_rgb(Color.WHITE) if visible else color_rgb(Color.GRAY)
+                        self._draw_stairs_up(rect, stairs_color)
+                    elif t.type == TileType.FOUNTAIN:
+                        color = (25, 23, 20) if visible else (16, 16, 20)
+                        self._draw_floor(rect, color, visible)
+                        self._draw_fountain(rect, visible)
 
-                    # Emit bubbling water drops if visible
-                    if visible and self._frame_count % 10 == 0:
-                        self._particles.append({
-                            "x": rect.centerx + random.uniform(-6, 6),
-                            "y": rect.bottom - 16,
-                            "vx": random.uniform(-0.3, 0.3),
-                            "vy": random.uniform(-0.8, -0.2),
-                            "color": (100, 190, 255) if random.random() > 0.4 else (255, 255, 255),
-                            "size": random.uniform(1.5, 3),
-                            "life": random.uniform(0.4, 0.8),
-                            "max_life": 1.0
-                        })
+                        # Emit bubbling water drops if visible
+                        if visible and self._frame_count % 10 == 0:
+                            self._particles.append({
+                                "x": rect.centerx + random.uniform(-6, 6),
+                                "y": rect.bottom - 16,
+                                "vx": random.uniform(-0.3, 0.3),
+                                "vy": random.uniform(-0.8, -0.2),
+                                "color": (100, 190, 255) if random.random() > 0.4 else (255, 255, 255),
+                                "size": random.uniform(1.5, 3),
+                                "life": random.uniform(0.4, 0.8),
+                                "max_life": 1.0
+                            })
+
+    def _draw_wooden_wall(self, rect: pygame.Rect, color: tuple[int, int, int]):
+        pygame.draw.rect(self._screen, color, rect)
+        plank_h = rect.height // 3
+        for i in range(1, 3):
+            y = rect.top + i * plank_h
+            pygame.draw.line(self._screen, (40, 25, 15), (rect.left, y), (rect.right, y), 2)
+        hl = tuple(min(255, c + 30) for c in color)
+        pygame.draw.line(self._screen, hl, rect.topleft, rect.topright)
+
+    def _draw_fence(self, rect: pygame.Rect, color: tuple[int, int, int]):
+        pygame.draw.rect(self._screen, (34, 85, 34), rect)
+        pygame.draw.rect(self._screen, color, (rect.left, rect.centery - 3, rect.width, 4))
+        pygame.draw.rect(self._screen, color, (rect.left + 4, rect.top, 4, rect.height))
+        pygame.draw.rect(self._screen, color, (rect.right - 8, rect.top, 4, rect.height))
+
+    def _draw_stone_wall(self, rect: pygame.Rect, color: tuple[int, int, int]):
+        pygame.draw.rect(self._screen, color, rect)
+        hl = tuple(min(255, c + 35) for c in color)
+        pygame.draw.line(self._screen, hl, rect.topleft, rect.topright)
+        pygame.draw.line(self._screen, hl, rect.topleft, rect.bottomleft)
+        pygame.draw.line(self._screen, (30, 30, 30), (rect.left, rect.centery), (rect.right, rect.centery))
+        pygame.draw.line(self._screen, (30, 30, 30), (rect.centerx, rect.top), (rect.centerx, rect.centery))
+        pygame.draw.line(self._screen, (30, 30, 30), (rect.left + 6, rect.centery), (rect.left + 6, rect.bottom))
+        pygame.draw.line(self._screen, (30, 30, 30), (rect.right - 6, rect.centery), (rect.right - 6, rect.bottom))
+
+    def _draw_hedge(self, rect: pygame.Rect, color: tuple[int, int, int]):
+        pygame.draw.rect(self._screen, (34, 85, 34), rect)
+        pygame.draw.circle(self._screen, color, rect.center, 14)
+        hl = tuple(min(255, c + 40) for c in color)
+        pygame.draw.circle(self._screen, hl, (rect.centerx - 3, rect.centery - 3), 6)
+
+    def _draw_cobblestone(self, rect: pygame.Rect, color: tuple[int, int, int], visible: bool):
+        pygame.draw.rect(self._screen, color, rect)
+        stone_color = (90, 85, 80) if visible else (50, 48, 45)
+        pygame.draw.circle(self._screen, stone_color, (rect.left + 8, rect.top + 8), 4)
+        pygame.draw.circle(self._screen, stone_color, (rect.right - 8, rect.top + 10), 3)
+        pygame.draw.circle(self._screen, stone_color, (rect.left + 10, rect.bottom - 8), 3)
+        pygame.draw.circle(self._screen, stone_color, (rect.right - 10, rect.bottom - 10), 4)
+
+    def _draw_tilled_soil(self, rect: pygame.Rect, color: tuple[int, int, int], visible: bool):
+        pygame.draw.rect(self._screen, color, rect)
+        line_color = (50, 35, 20) if visible else (30, 20, 12)
+        pygame.draw.line(self._screen, line_color, (rect.left, rect.top + 8), (rect.right, rect.top + 8), 2)
+        pygame.draw.line(self._screen, line_color, (rect.left, rect.bottom - 8), (rect.right, rect.bottom - 8), 2)
+        if visible and (rect.x + rect.y) % 3 == 0:
+            pygame.draw.circle(self._screen, (34, 180, 34), (rect.centerx, rect.top + 6), 2)
+            pygame.draw.circle(self._screen, (34, 180, 34), (rect.centerx, rect.bottom - 10), 2)
+
+    def _draw_dark_grass(self, rect: pygame.Rect, color: tuple[int, int, int], visible: bool):
+        pygame.draw.rect(self._screen, color, rect)
+        if (rect.x * 7 + rect.y * 13) % 5 == 0:
+            dot_color = (60, 65, 60) if visible else (35, 38, 35)
+            pygame.draw.rect(self._screen, dot_color, (rect.centerx - 2, rect.centery - 4, 4, 6), border_radius=1)
+
+    def _draw_grass(self, rect: pygame.Rect, color: tuple[int, int, int], visible: bool):
+        pygame.draw.rect(self._screen, color, rect)
+        if visible and (rect.x + rect.y * 3) % 4 == 0:
+            tuft_color = (60, 130, 60)
+            pygame.draw.line(self._screen, tuft_color, (rect.centerx, rect.centery + 3), (rect.centerx - 2, rect.centery - 3), 1)
+            pygame.draw.line(self._screen, tuft_color, (rect.centerx, rect.centery + 3), (rect.centerx + 2, rect.centery - 2), 1)
+
+    def _draw_cellar_hatch(self, rect: pygame.Rect, visible: bool):
+        door_color = (110, 65, 25) if visible else (55, 32, 12)
+        pygame.draw.rect(self._screen, door_color, rect, border_radius=1)
+        pygame.draw.line(self._screen, (40, 25, 10), (rect.centerx, rect.top), (rect.centerx, rect.bottom), 2)
+        hinge_color = (120, 120, 125) if visible else (60, 60, 62)
+        pygame.draw.rect(self._screen, hinge_color, (rect.left + 2, rect.top + 4, 4, 2))
+        pygame.draw.rect(self._screen, hinge_color, (rect.right - 6, rect.top + 4, 4, 2))
+        pygame.draw.rect(self._screen, hinge_color, (rect.left + 2, rect.bottom - 6, 4, 2))
+        pygame.draw.rect(self._screen, hinge_color, (rect.right - 6, rect.bottom - 6, 4, 2))
+
+    def _draw_crypt_entrance(self, rect: pygame.Rect, visible: bool):
+        pygame.draw.rect(self._screen, (30, 30, 30), rect)
+        stone_color = (100, 100, 105) if visible else (50, 50, 52)
+        pygame.draw.arc(self._screen, stone_color, (rect.left + 4, rect.top + 2, rect.width - 8, rect.height - 4), 0, math.pi, width=4)
+        step_color = (60, 60, 65) if visible else (30, 30, 32)
+        pygame.draw.rect(self._screen, step_color, (rect.left + 8, rect.centery, rect.width - 16, 4))
+        pygame.draw.rect(self._screen, step_color, (rect.left + 10, rect.centery + 4, rect.width - 20, 4))
+
+    def _draw_cave_entrance(self, rect: pygame.Rect, visible: bool):
+        pygame.draw.rect(self._screen, (34, 85, 34), rect)
+        pygame.draw.ellipse(self._screen, (10, 10, 12), (rect.left + 3, rect.top + 3, rect.width - 6, rect.height - 6))
+        rock_color = (120, 110, 100) if visible else (60, 55, 50)
+        pygame.draw.ellipse(self._screen, rock_color, (rect.left + 3, rect.top + 3, rect.width - 6, rect.height - 6), width=2)
 
     def _draw_brick_wall(self, rect: pygame.Rect, color: tuple[int, int, int]):
         pygame.draw.rect(self._screen, color, rect)
@@ -387,13 +555,15 @@ class Renderer:
             if ie.item.kind.value == "healing_potion":
                 self._draw_potion(rect, color)
             elif ie.item.kind.value == "weapon":
-                self._draw_weapon(rect, color)
+                self._draw_weapon(rect, color, ie.item.name)
             elif ie.item.kind.value == "wand":
                 self._draw_wand(rect, color)
             elif ie.item.kind.value == "coin":
                 self._draw_coin(rect)
             elif ie.item.kind.value == "key":
                 self._draw_key(rect)
+            elif ie.item.kind.value == "arrow":
+                self._draw_arrows_item(rect)
             else:
                 # Fallback circular pouch item
                 pygame.draw.circle(self._screen, color, rect.center, 6)
@@ -429,7 +599,11 @@ class Renderer:
         # Shine spot
         pygame.draw.circle(self._screen, (255, 255, 255), (rect.centerx - 2, rect.bottom - 12), 2)
 
-    def _draw_weapon(self, rect: pygame.Rect, color: tuple[int, int, int]):
+    def _draw_weapon(self, rect: pygame.Rect, color: tuple[int, int, int], name: str = ""):
+        if name == "bow":
+            self._draw_bow(rect, color)
+            return
+
         # Diagonal sword vector lines
         start = (rect.left + 6, rect.bottom - 6)
         end = (rect.right - 6, rect.top + 6)
@@ -454,6 +628,40 @@ class Renderer:
             # Draw brown wood hilt
             hilt_end = (start[0] + dx * 0.08, start[1] + dy * 0.08)
             pygame.draw.line(self._screen, (110, 75, 40), start, hilt_end, 3)
+
+    def _draw_bow(self, rect: pygame.Rect, color: tuple[int, int, int]):
+        # Curved wooden bow curve points bent toward top-right
+        start_pt = (rect.left + 8, rect.top + 8)
+        end_pt = (rect.right - 8, rect.bottom - 8)
+        control_pt = (rect.right - 6, rect.top + 6)
+        
+        points = []
+        for i in range(11):
+            t = i / 10
+            x = (1-t)**2 * start_pt[0] + 2*(1-t)*t * control_pt[0] + t**2 * end_pt[0]
+            y = (1-t)**2 * start_pt[1] + 2*(1-t)*t * control_pt[1] + t**2 * end_pt[1]
+            points.append((int(x), int(y)))
+        pygame.draw.lines(self._screen, (139, 90, 43), False, points, 3)
+        
+        # Glow highlights if blessed
+        if color != color_rgb(Color.CYAN):
+            pygame.draw.lines(self._screen, color, False, points, 1)
+
+        # Bow string (thin light grey)
+        pygame.draw.line(self._screen, (220, 220, 225), start_pt, end_pt, 1)
+
+    def _draw_arrows_item(self, rect: pygame.Rect):
+        # Draw 2 crossed arrows on the floor
+        # Shaft 1
+        pygame.draw.line(self._screen, (139, 90, 43), (rect.left + 8, rect.bottom - 8), (rect.right - 8, rect.top + 8), 2)
+        # Shaft 2
+        pygame.draw.line(self._screen, (139, 90, 43), (rect.left + 8, rect.top + 8), (rect.right - 8, rect.bottom - 8), 2)
+        # Fletchings (little white flight circles)
+        pygame.draw.circle(self._screen, (240, 240, 245), (rect.left + 8, rect.bottom - 8), 2)
+        pygame.draw.circle(self._screen, (240, 240, 245), (rect.left + 8, rect.top + 8), 2)
+        # Arrow heads
+        pygame.draw.polygon(self._screen, (200, 200, 210), [(rect.right - 8, rect.top + 8), (rect.right - 12, rect.top + 6), (rect.right - 6, rect.top + 12)])
+        pygame.draw.polygon(self._screen, (200, 200, 210), [(rect.right - 8, rect.bottom - 8), (rect.right - 12, rect.bottom - 6), (rect.right - 6, rect.bottom - 12)])
 
     def _draw_wand(self, rect: pygame.Rect, color: tuple[int, int, int]):
         start = (rect.left + 7, rect.bottom - 7)
@@ -481,7 +689,8 @@ class Renderer:
             ox, oy = self._get_bump_offset(m)
             
             rect = pygame.Rect(vx + ox + shake_x, vy + oy + shake_y, TILE_SIZE, TILE_SIZE)
-            self._draw_monster_sprite(rect, m.name, color_rgb(m.color))
+            sprite_name = getattr(m, "npc_type", m.name) if getattr(m, "is_npc", False) else m.name
+            self._draw_monster_sprite(rect, sprite_name, color_rgb(m.color))
 
         # Render Player
         if player.x < MAP_WIDTH and player.y < MAP_HEIGHT:
@@ -576,24 +785,105 @@ class Renderer:
             pygame.draw.polygon(self._screen, (75, 75, 80), [(rect.centerx - 7, rect.top + 7), (rect.centerx - 11, rect.top + 2), (rect.centerx - 4, rect.top + 8)])
             pygame.draw.polygon(self._screen, (75, 75, 80), [(rect.centerx + 7, rect.top + 7), (rect.centerx + 11, rect.top + 2), (rect.centerx + 4, rect.top + 8)])
         elif name == "merchant":
-            # Cozy brown hooded figure with a gold collar/emblem
-            # Cloak body
-            cloak_rect = pygame.Rect(rect.left + 4, rect.centery - 2, 24, 16)
-            pygame.draw.ellipse(self._screen, (100, 65, 35), cloak_rect)
-            
-            # Hood
-            pygame.draw.circle(self._screen, (120, 80, 50), (rect.centerx, rect.centery - 4), 9)
-            
-            # Face opening
-            pygame.draw.circle(self._screen, (25, 20, 15), (rect.centerx, rect.centery - 4), 6)
-            
-            # Glowing gold eyes
-            pygame.draw.circle(self._screen, (255, 215, 0), (rect.centerx - 2, rect.centery - 5), 1)
-            pygame.draw.circle(self._screen, (255, 215, 0), (rect.centerx + 2, rect.centery - 5), 1)
-            
-            # Gold emblem/collar
-            emblem_rect = pygame.Rect(rect.centerx - 3, rect.centery + 3, 6, 6)
-            pygame.draw.ellipse(self._screen, (255, 215, 0), emblem_rect)
+            # 1. Cloak and robes
+            pygame.draw.rect(self._screen, (90, 60, 35), (rect.centerx - 6, rect.top + 12, 12, 15), border_radius=2)
+            pygame.draw.rect(self._screen, (70, 45, 25), (rect.centerx - 5, rect.top + 25, 3, 4)) # Left boot
+            pygame.draw.rect(self._screen, (70, 45, 25), (rect.centerx + 2, rect.top + 25, 3, 4)) # Right boot
+            # 2. Cowl / Hood
+            pygame.draw.circle(self._screen, (110, 75, 45), (rect.centerx, rect.top + 7), 8)
+            pygame.draw.circle(self._screen, (25, 20, 15), (rect.centerx, rect.top + 7), 5.5)
+            pygame.draw.circle(self._screen, (255, 215, 0), (rect.centerx - 2, rect.top + 6), 1) # Glowing eyes
+            pygame.draw.circle(self._screen, (255, 215, 0), (rect.centerx + 2, rect.top + 6), 1)
+            pygame.draw.circle(self._screen, (255, 215, 0), (rect.centerx, rect.top + 13), 2) # clasp
+            # 3. Arms holding a small gold coin
+            pygame.draw.line(self._screen, (90, 60, 35), (rect.centerx - 6, rect.top + 14), (rect.centerx - 8, rect.top + 19), 2)
+            pygame.draw.circle(self._screen, (240, 200, 160), (rect.centerx - 8, rect.top + 19), 2)
+            pygame.draw.circle(self._screen, (215, 175, 20), (rect.centerx - 9, rect.top + 20), 2)
+        elif name == "villager":
+            # 1. Legs & Shoes
+            pygame.draw.rect(self._screen, (75, 75, 80), (rect.centerx - 4, rect.top + 23, 3, 6)) # Left leg
+            pygame.draw.rect(self._screen, (75, 75, 80), (rect.centerx + 1, rect.top + 23, 3, 6)) # Right leg
+            pygame.draw.rect(self._screen, (80, 50, 30), (rect.centerx - 5, rect.top + 28, 4, 3), border_radius=1) # Left shoe
+            pygame.draw.rect(self._screen, (80, 50, 30), (rect.centerx + 1, rect.top + 28, 4, 3), border_radius=1) # Right shoe
+            # 2. Body / Tunic
+            pygame.draw.rect(self._screen, (50, 100, 220), (rect.centerx - 6, rect.top + 12, 12, 12), border_radius=2)
+            # Brown belt
+            pygame.draw.rect(self._screen, (100, 65, 35), (rect.centerx - 6, rect.top + 18, 12, 2))
+            # 3. Head & Hair
+            pygame.draw.circle(self._screen, (240, 200, 160), (rect.centerx, rect.top + 8), 5)
+            # Brown hair on top/sides
+            pygame.draw.rect(self._screen, (90, 50, 20), (rect.centerx - 6, rect.top + 3, 12, 3), border_radius=1)
+            pygame.draw.rect(self._screen, (90, 50, 20), (rect.centerx - 6, rect.top + 3, 2, 6))
+            pygame.draw.rect(self._screen, (90, 50, 20), (rect.centerx + 4, rect.top + 3, 2, 6))
+            # 4. Face features
+            pygame.draw.circle(self._screen, (30, 30, 30), (rect.centerx - 2, rect.top + 7), 1) # Left eye
+            pygame.draw.circle(self._screen, (30, 30, 30), (rect.centerx + 2, rect.top + 7), 1) # Right eye
+            pygame.draw.line(self._screen, (200, 80, 80), (rect.centerx - 1, rect.top + 10), (rect.centerx + 1, rect.top + 10), 1) # Smile
+            # 5. Arms & Hands
+            pygame.draw.line(self._screen, (50, 100, 220), (rect.centerx - 6, rect.top + 14), (rect.centerx - 8, rect.top + 20), 2)
+            pygame.draw.line(self._screen, (50, 100, 220), (rect.centerx + 6, rect.top + 14), (rect.centerx + 8, rect.top + 20), 2)
+            pygame.draw.circle(self._screen, (240, 200, 160), (rect.centerx - 8, rect.top + 20), 2)
+            pygame.draw.circle(self._screen, (240, 200, 160), (rect.centerx + 8, rect.top + 20), 2)
+        elif name == "farmer":
+            # 1. Legs & Workboots
+            pygame.draw.rect(self._screen, (40, 85, 170), (rect.centerx - 4, rect.top + 23, 3, 6)) # Left pant leg
+            pygame.draw.rect(self._screen, (40, 85, 170), (rect.centerx + 1, rect.top + 23, 3, 6)) # Right pant leg
+            pygame.draw.rect(self._screen, (90, 60, 30), (rect.centerx - 5, rect.top + 28, 4, 3), border_radius=1) # Left boot
+            pygame.draw.rect(self._screen, (90, 60, 30), (rect.centerx + 1, rect.top + 28, 4, 3), border_radius=1) # Right boot
+            # 2. Torso (Red Shirt & Blue Overalls)
+            pygame.draw.rect(self._screen, (200, 50, 50), (rect.centerx - 6, rect.top + 12, 12, 12), border_radius=1) # Red shirt
+            # Draw blue overalls over shirt
+            pygame.draw.rect(self._screen, (40, 85, 170), (rect.centerx - 5, rect.top + 16, 10, 8), border_radius=1)
+            # Suspender straps
+            pygame.draw.line(self._screen, (40, 85, 170), (rect.centerx - 4, rect.top + 12), (rect.centerx - 4, rect.top + 16), 2)
+            pygame.draw.line(self._screen, (40, 85, 170), (rect.centerx + 3, rect.top + 12), (rect.centerx + 3, rect.top + 16), 2)
+            # 3. Head & Straw Hat
+            pygame.draw.circle(self._screen, (240, 200, 160), (rect.centerx, rect.top + 8), 5) # Head
+            # Face details
+            pygame.draw.circle(self._screen, (30, 30, 30), (rect.centerx - 2, rect.top + 7), 1)
+            pygame.draw.circle(self._screen, (30, 30, 30), (rect.centerx + 2, rect.top + 7), 1)
+            # Wide straw hat brim
+            pygame.draw.ellipse(self._screen, (220, 200, 80), (rect.centerx - 10, rect.top + 1, 20, 4))
+            pygame.draw.rect(self._screen, (220, 200, 80), (rect.centerx - 5, rect.top - 2, 10, 4), border_radius=1)
+            # 4. Arms holding wheat
+            pygame.draw.line(self._screen, (200, 50, 50), (rect.centerx - 6, rect.top + 14), (rect.centerx - 9, rect.top + 19), 2)
+            pygame.draw.line(self._screen, (200, 50, 50), (rect.centerx + 6, rect.top + 14), (rect.centerx + 8, rect.top + 19), 2)
+            pygame.draw.circle(self._screen, (240, 200, 160), (rect.centerx - 9, rect.top + 19), 2) # Left hand
+            pygame.draw.circle(self._screen, (240, 200, 160), (rect.centerx + 8, rect.top + 19), 2) # Right hand
+            # Golden wheat stalk in hand
+            pygame.draw.line(self._screen, (100, 160, 50), (rect.centerx - 9, rect.top + 24), (rect.centerx - 11, rect.top + 12), 1) # stem
+            pygame.draw.ellipse(self._screen, (230, 200, 50), (rect.centerx - 13, rect.top + 9, 3, 5)) # seed head
+        elif name == "ghost_npc":
+            # Friendly ghost sprite (translucent blue)
+            ghost_surf = pygame.Surface((32, 32), pygame.SRCALPHA)
+            pygame.draw.circle(ghost_surf, (150, 220, 255, 150), (16, 12), 7)
+            pygame.draw.polygon(ghost_surf, (150, 220, 255, 150), [(9, 12), (23, 12), (16, 26)])
+            pygame.draw.circle(ghost_surf, (255, 255, 255, 200), (13, 11), 2)
+            pygame.draw.circle(ghost_surf, (255, 255, 255, 200), (19, 11), 2)
+            self._screen.blit(ghost_surf, rect.topleft)
+        elif name == "druid":
+            # 1. Robe (Green and Gold trim)
+            pygame.draw.rect(self._screen, (30, 120, 30), (rect.centerx - 6, rect.top + 12, 12, 16), border_radius=2)
+            pygame.draw.rect(self._screen, (235, 185, 30), (rect.centerx - 6, rect.top + 26, 12, 2))
+            # 2. Head & hood
+            pygame.draw.circle(self._screen, (240, 200, 160), (rect.centerx, rect.top + 8), 5) # Face
+            pygame.draw.circle(self._screen, (30, 100, 30), (rect.centerx, rect.top + 7), 7, width=2)
+            # 3. Flowing white beard
+            pygame.draw.polygon(self._screen, (245, 245, 245), [
+                (rect.centerx - 3, rect.top + 10),
+                (rect.centerx + 3, rect.top + 10),
+                (rect.centerx, rect.top + 19)
+            ])
+            # Glowing emerald eyes
+            pygame.draw.circle(self._screen, (50, 240, 50), (rect.centerx - 2, rect.top + 7), 1)
+            pygame.draw.circle(self._screen, (50, 240, 50), (rect.centerx + 2, rect.top + 7), 1)
+            # 4. Arms & staff
+            pygame.draw.line(self._screen, (30, 120, 30), (rect.centerx + 6, rect.top + 14), (rect.centerx + 8, rect.top + 18), 2)
+            pygame.draw.circle(self._screen, (240, 200, 160), (rect.centerx + 8, rect.top + 18), 2) # Right hand
+            # Wooden staff
+            pygame.draw.line(self._screen, (120, 75, 35), (rect.centerx + 10, rect.bottom - 4), (rect.centerx + 10, rect.top + 2), 3)
+            pygame.draw.circle(self._screen, (0, 200, 255), (rect.centerx + 10, rect.top + 2), 3)
+            pygame.draw.circle(self._screen, (255, 255, 255), (rect.centerx + 10, rect.top + 2), 1)
         elif name in ("chest", "locked chest"):
             # Draw chest box (wooden container)
             box_rect = pygame.Rect(rect.left + 5, rect.centery - 4, 22, 16)
@@ -662,15 +952,18 @@ class Renderer:
 
         # Fallback vector sprites for classes
         if char_class == "Knight":
-            # Plate armor chestplate
+            # 1. Legs and steel boots
+            pygame.draw.rect(self._screen, (110, 110, 115), (rect.centerx - 4, rect.centery + 8, 3, 5)) # Left leg
+            pygame.draw.rect(self._screen, (110, 110, 115), (rect.centerx + 1, rect.centery + 8, 3, 5)) # Right leg
+            pygame.draw.rect(self._screen, (50, 50, 50), (rect.centerx - 5, rect.centery + 12, 4, 3), border_radius=1) # Left boot
+            pygame.draw.rect(self._screen, (50, 50, 50), (rect.centerx + 1, rect.centery + 12, 4, 3), border_radius=1) # Right boot
+            # 2. Chestplate
             pygame.draw.rect(self._screen, (130, 130, 140), (rect.centerx - 7, rect.centery - 2, 14, 11), border_radius=2)
-            # Steel Helmet
+            # 3. Helmet & plume
             pygame.draw.circle(self._screen, (170, 170, 180), (rect.centerx, rect.centery - 6), 6)
-            # Visor slot
-            pygame.draw.rect(self._screen, (35, 35, 40), (rect.centerx - 4, rect.centery - 7, 8, 2))
-            # Red plume
-            pygame.draw.circle(self._screen, (220, 40, 40), (rect.centerx, rect.top + 5), 2)
-            # Wooden shield on arm
+            pygame.draw.rect(self._screen, (35, 35, 40), (rect.centerx - 4, rect.centery - 7, 8, 2)) # Visor slot
+            pygame.draw.circle(self._screen, (220, 40, 40), (rect.centerx, rect.top + 5), 2) # Red plume
+            # 4. Shield (on left arm)
             pygame.draw.polygon(self._screen, (139, 69, 19), [
                 (rect.centerx - 11, rect.centery + 1),
                 (rect.centerx - 6, rect.centery + 1),
@@ -681,35 +974,52 @@ class Renderer:
                 (rect.centerx - 6, rect.centery + 1),
                 (rect.centerx - 8, rect.centery + 8)
             ], width=1)
+            # 5. Sword in right arm
+            pygame.draw.line(self._screen, (130, 130, 140), (rect.centerx + 6, rect.centery + 2), (rect.centerx + 9, rect.centery + 5), 2) # arm
+            pygame.draw.line(self._screen, (210, 215, 220), (rect.centerx + 9, rect.centery + 5), (rect.centerx + 13, rect.centery - 4), 2) # Blade
+            pygame.draw.line(self._screen, (245, 205, 35), (rect.centerx + 7, rect.centery + 6), (rect.centerx + 11, rect.centery + 3), 2) # Guard
         elif char_class == "Rogue":
             # Green Rogue drawing
-            # Cloak forest green
+            # 1. Legs and boots
+            pygame.draw.rect(self._screen, (40, 45, 42), (rect.centerx - 4, rect.centery + 8, 3, 5)) # Left leg
+            pygame.draw.rect(self._screen, (40, 45, 42), (rect.centerx + 1, rect.centery + 8, 3, 5)) # Right leg
+            pygame.draw.rect(self._screen, (60, 45, 30), (rect.centerx - 5, rect.centery + 12, 4, 3), border_radius=1) # Left shoe
+            pygame.draw.rect(self._screen, (60, 45, 30), (rect.centerx + 1, rect.centery + 12, 4, 3), border_radius=1) # Right shoe
+            # 2. Cloak forest green
             pygame.draw.circle(self._screen, (34, 110, 56), rect.center, 8)
-            # Dark cowl/hood
+            # 3. Dark cowl/hood
             pygame.draw.circle(self._screen, (45, 55, 50), (rect.centerx, rect.centery - 4), 6)
             # Shadowy mask inside cowl
             pygame.draw.circle(self._screen, (20, 22, 20), (rect.centerx, rect.centery - 4), 4)
             # Glinting eyes
-            pygame.draw.circle(self._screen, (180, 220, 255), (rect.centerx - 1, rect.centery - 4.5), 1)
-            pygame.draw.circle(self._screen, (180, 220, 255), (rect.centerx + 1, rect.centery - 4.5), 1)
-            # Steel dagger in hand
+            pygame.draw.circle(self._screen, (180, 220, 255), (rect.centerx - 1, rect.centery - 5), 1)
+            pygame.draw.circle(self._screen, (180, 220, 255), (rect.centerx + 1, rect.centery - 5), 1)
+            # 4. Steel dagger in hand
             pygame.draw.line(self._screen, (200, 200, 205), (rect.centerx + 5, rect.centery), (rect.centerx + 10, rect.centery - 5), 2)
             pygame.draw.line(self._screen, (120, 80, 40), (rect.centerx + 4, rect.centery + 1), (rect.centerx + 6, rect.centery - 1), 2)
         else:
-            # Wizard Cloak (deep purple circle)
-            pygame.draw.circle(self._screen, (100, 45, 175), rect.center, 9)
-            # Gold emblem/star on cloak
-            pygame.draw.circle(self._screen, (245, 205, 35), (rect.centerx, rect.centery + 2), 2)
-
-            # Conical Wizard Hat
+            # Wizard Cloak (deep purple)
+            # 1. Robe down to legs
+            pygame.draw.rect(self._screen, (100, 45, 175), (rect.centerx - 6, rect.centery - 2, 12, 14), border_radius=2)
+            pygame.draw.rect(self._screen, (90, 60, 35), (rect.centerx - 5, rect.centery + 11, 4, 3), border_radius=1) # Left shoe
+            pygame.draw.rect(self._screen, (90, 60, 35), (rect.centerx + 1, rect.centery + 11, 4, 3), border_radius=1) # Right shoe
+            pygame.draw.circle(self._screen, (245, 205, 35), (rect.centerx, rect.centery + 2), 2) # Gold emblem
+            # 2. Face peeking out from under hat
+            pygame.draw.circle(self._screen, (240, 200, 160), (rect.centerx, rect.centery - 5), 5)
+            # Glowing wizard eyes (white/light-blue)
+            pygame.draw.circle(self._screen, (150, 220, 255), (rect.centerx - 1.5, rect.centery - 5), 1)
+            pygame.draw.circle(self._screen, (150, 220, 255), (rect.centerx + 1.5, rect.centery - 5), 1)
+            # 3. Conical Wizard Hat
             hat_points = [
                 (rect.centerx, rect.top + 3),
-                (rect.centerx - 8, rect.centery - 2),
-                (rect.centerx + 8, rect.centery - 2)
+                (rect.centerx - 8, rect.centery - 4),
+                (rect.centerx + 8, rect.centery - 4)
             ]
-            pygame.draw.polygon(self._screen, (25, 45, 120), hat_points)
-            # Yellow brim
-            pygame.draw.line(self._screen, (245, 205, 35), (rect.centerx - 10, rect.centery - 2), (rect.centerx + 10, rect.centery - 2), 2)
+            pygame.draw.polygon(self._screen, (70, 30, 130), hat_points)
+            pygame.draw.ellipse(self._screen, (245, 205, 35), (rect.centerx - 9, rect.centery - 6, 18, 4)) # Gold brim
+            # 4. Staff in hand
+            pygame.draw.line(self._screen, (120, 75, 35), (rect.centerx - 8, rect.centery + 11), (rect.centerx - 8, rect.centery - 4), 2)
+            pygame.draw.circle(self._screen, (0, 200, 255), (rect.centerx - 8, rect.centery - 4), 3)
 
     def _draw_projectiles(self, shake_x: int, shake_y: int):
         for proj in self._projectiles:
@@ -761,6 +1071,38 @@ class Renderer:
                     pygame.draw.lines(self._screen, (100, 200, 255), False, points, 4)
                     # Thin white core
                     pygame.draw.lines(self._screen, (255, 255, 255), False, points, 2)
+            elif ptype == "arrow":
+                # Draw a vector arrow pointing in direction of travel
+                dx = path[-1][0] - path[0][0]
+                dy = path[-1][1] - path[0][1]
+                angle = math.atan2(dy, dx)
+                
+                # Shaft length
+                arrow_len = 16
+                bx = px - math.cos(angle) * (arrow_len / 2)
+                by = py - math.sin(angle) * (arrow_len / 2)
+                fx = px + math.cos(angle) * (arrow_len / 2)
+                fy = py + math.sin(angle) * (arrow_len / 2)
+                
+                # Brown wooden shaft
+                pygame.draw.line(self._screen, (139, 90, 43), (int(bx), int(by)), (int(fx), int(fy)), 2)
+                # Steel triangular arrowhead
+                tip_len = 4
+                tx1 = fx - math.cos(angle + math.pi/6) * tip_len
+                ty1 = fy - math.sin(angle + math.pi/6) * tip_len
+                tx2 = fx - math.cos(angle - math.pi/6) * tip_len
+                ty2 = fy - math.sin(angle - math.pi/6) * tip_len
+                pygame.draw.polygon(self._screen, (200, 200, 210), [(int(fx), int(fy)), (int(tx1), int(ty1)), (int(tx2), int(ty2))])
+                # White feathers flight fletching
+                f_angle1 = angle + math.pi * 5/6
+                f_angle2 = angle - math.pi * 5/6
+                f_len = 4
+                fx1 = bx + math.cos(f_angle1) * f_len
+                fy1 = by + math.sin(f_angle1) * f_len
+                fx2 = bx + math.cos(f_angle2) * f_len
+                fy2 = by + math.sin(f_angle2) * f_len
+                pygame.draw.line(self._screen, (240, 240, 245), (int(bx), int(by)), (int(fx1), int(fy1)), 2)
+                pygame.draw.line(self._screen, (240, 240, 245), (int(bx), int(by)), (int(fx2), int(fy2)), 2)
             else:
                 # Fireball core
                 pygame.draw.circle(self._screen, (255, 230, 40), (int(px), int(py)), 8)
@@ -795,6 +1137,80 @@ class Renderer:
             ty = dt["y"] - 15 + shake_y
             self._screen.blit(alpha_surf, (tx, ty))
 
+    def _draw_slashes(self, shake_x: int, shake_y: int):
+        for s in self._slashes:
+            tx, ty = s["x"], s["y"]
+            direction = s["direction"]
+            color = s["color"]
+            life = s["life"]
+            
+            # Reconstruct player position to center the arc on the player
+            px, py = tx, ty
+            if direction == "RIGHT":
+                px = tx - 1
+            elif direction == "LEFT":
+                px = tx + 1
+            elif direction == "UP":
+                py = ty + 1
+            elif direction == "DOWN":
+                py = ty - 1
+                
+            # Center of the player tile in pixels
+            px_center = int((px + 0.5) * TILE_SIZE)
+            py_center = int((py + 0.5) * TILE_SIZE)
+            
+            # The radius sweeps near the target tile
+            R = int(TILE_SIZE * 0.95)
+            
+            # Use a 120x120 temporary surface centered around the player's position
+            temp_surf = pygame.Surface((120, 120), pygame.SRCALPHA)
+            cx, cy = 60, 60
+            
+            # Determine center angle based on direction (0 is right, pi/2 is up, pi is left, 3*pi/2 is down)
+            if direction == "RIGHT":
+                center_angle = 0.0
+            elif direction == "UP":
+                center_angle = math.pi / 2.0
+            elif direction == "LEFT":
+                center_angle = math.pi
+            elif direction == "DOWN":
+                center_angle = 3.0 * math.pi / 2.0
+            else:
+                center_angle = 0.0
+                
+            # Sweep angle is 100 degrees total (50 degrees each side)
+            half_sweep = math.radians(50)
+            num_segments = 12
+            
+            points = []
+            for i in range(num_segments + 1):
+                angle = center_angle - half_sweep + (2.0 * half_sweep * i / num_segments)
+                # In Pygame, y increases downwards, so math positive y is screen negative y
+                x_p = int(cx + R * math.cos(angle))
+                y_p = int(cy - R * math.sin(angle))
+                points.append((x_p, y_p))
+                
+            if len(points) > 1:
+                # 1. Broad outer glow (low alpha, wide)
+                glow_alpha_1 = int(70 * life)
+                glow_color_1 = color + (glow_alpha_1,)
+                pygame.draw.lines(temp_surf, glow_color_1, False, points, width=6)
+                
+                # 2. Narrower glow (medium alpha, medium width)
+                glow_alpha_2 = int(140 * life)
+                glow_color_2 = color + (glow_alpha_2,)
+                pygame.draw.lines(temp_surf, glow_color_2, False, points, width=4)
+                
+                # 3. Bright core (high alpha, thin, white/light color)
+                core_alpha = int(255 * life)
+                core_color = (255, 255, 255, core_alpha)
+                pygame.draw.lines(temp_surf, core_color, False, points, width=2)
+                
+            # Blit onto the screen centered at player tile center
+            screen_x = px_center - cx + shake_x
+            screen_y = py_center - cy + shake_y
+            self._screen.blit(temp_surf, (screen_x, screen_y))
+
     def _draw_sidebar(self, player: Player):
         sx = MAP_PIXEL_WIDTH
         
@@ -805,7 +1221,8 @@ class Renderer:
         # Header Status
         self._draw_text(sx + 20, 20, "-- STATUS --", color_rgb(Color.YELLOW), font=self._header_font)
         self._draw_text(sx + 20, 48, f"Class: {getattr(player, 'char_class', 'Wizard')}", color_rgb(Color.CYAN), font=self._header_font)
-        self._draw_text(sx + 20, 76, f"Depth: {player.depth} (max {player.max_depth})", color_rgb(Color.WHITE))
+        depth_str = "Overworld" if player.depth == 0 else str(player.depth)
+        self._draw_text(sx + 20, 76, f"Depth: {depth_str} (max {player.max_depth})", color_rgb(Color.WHITE))
 
         # HP bar
         self._draw_text(sx + 20, 106, "HP: ", color_rgb(Color.WHITE))
@@ -838,11 +1255,12 @@ class Renderer:
         # Status text details
         self._draw_text(sx + 20, 136, f"ATK:   {player.attack}", color_rgb(Color.WHITE))
         self._draw_text(sx + 20, 166, f"Kills: {player.kills}", color_rgb(Color.WHITE))
-        self._draw_text(sx + 20, 196, f"Gold:  {player.coins}", (240, 195, 30), font=self._header_font)
-        self._draw_text(sx + 20, 226, f"Score: {player.score}", color_rgb(Color.CYAN), font=self._header_font)
+        self._draw_text(sx + 20, 196, f"Arrows: {getattr(player, 'arrows', 0)}", color_rgb(Color.WHITE))
+        self._draw_text(sx + 20, 226, f"Gold:  {player.coins}", (240, 195, 30), font=self._header_font)
+        self._draw_text(sx + 20, 256, f"Score: {player.score}", color_rgb(Color.CYAN), font=self._header_font)
 
         # Keyboard Controls Cheat Sheet
-        self._draw_text(sx + 20, 260, "-- CONTROLS --", color_rgb(Color.YELLOW), font=self._header_font)
+        self._draw_text(sx + 20, 286, "-- CONTROLS --", color_rgb(Color.YELLOW), font=self._header_font)
         controls = [
             ("Arrows", "Move / Bump Attack"),
             ("G Key", "Pick up item"),
@@ -851,7 +1269,7 @@ class Renderer:
             ("Enter", "Use stairs"),
             ("Q Key", "Quit game"),
         ]
-        curr_y = 290
+        curr_y = 316
         for key, desc in controls:
             self._draw_text(sx + 20, curr_y, f"{key:6}: {desc}", color_rgb(Color.GRAY))
             curr_y += 24
@@ -937,6 +1355,8 @@ class Renderer:
                     detail = f"{item.wand_damage} dmg, {item.charges} chg"
                 elif item.kind.value == "key":
                     detail = "opens locked chests"
+                elif item.kind.value == "arrow":
+                    detail = f"{item.charges} arrows"
                 else:
                     detail = ""
 
@@ -1037,9 +1457,11 @@ class Renderer:
             elif item.kind.value == "healing_potion":
                 self._draw_potion(icon_rect, icon_color)
             elif item.kind.value == "weapon":
-                self._draw_weapon(icon_rect, icon_color)
+                self._draw_weapon(icon_rect, icon_color, item.name)
             elif item.kind.value == "wand":
                 self._draw_wand(icon_rect, icon_color)
+            elif item.kind.value == "arrow":
+                self._draw_arrows_item(icon_rect)
                 
             # Item Name
             item_name = item.display_name.capitalize()
@@ -1053,9 +1475,14 @@ class Renderer:
             elif item.kind.value == "healing_potion":
                 desc = f"Restores {item.heal_amount} HP. Consumed from inventory."
             elif item.kind.value == "weapon":
-                desc = f"Melee weapon: provides +{item.attack_bonus} attack bonus."
+                if item.name == "bow":
+                    desc = f"Ranged weapon: shoots arrows up to 10 cells (+{item.attack_bonus} atk)."
+                else:
+                    desc = f"Melee weapon: provides +{item.attack_bonus} attack bonus."
             elif item.kind.value == "wand":
                 desc = f"Ranged zap. Pierces. Deals {item.wand_damage} dmg. {item.charges} chg."
+            elif item.kind.value == "arrow":
+                desc = f"Quiver of {item.charges} arrows. Used with a Bow."
             else:
                 desc = ""
                 

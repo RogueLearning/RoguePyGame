@@ -16,6 +16,12 @@ class DungeonLevel:
         self.stairs_up: tuple[int, int] = (0, 0)
         self.has_stairs_up: bool = False
         self.player_spawn: tuple[int, int] = (0, 0)
+        
+        # Overworld-specific fields
+        self.is_overworld: bool = False
+        self.stairs_down_crypt: tuple[int, int] = (0, 0)
+        self.stairs_down_cellar: tuple[int, int] = (0, 0)
+        self.stairs_down_cave: tuple[int, int] = (0, 0)
 
     def in_bounds(self, x: int, y: int) -> bool:
         return 0 <= x < self.width and 0 <= y < self.height

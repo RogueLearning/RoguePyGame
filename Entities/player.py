@@ -22,6 +22,7 @@ class Player(Entity):
         self.name = "you"
         self.facing = "DOWN"
         self.coins: int = 0
+        self.arrows: int = 0
         self.char_class: str = "Wizard"
 
 

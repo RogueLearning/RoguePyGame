@@ -10,6 +10,7 @@ class ItemKind(Enum):
     WAND = "wand"
     COIN = "coin"
     KEY = "key"
+    ARROW = "arrow"
 
 
 class Item:
@@ -32,6 +33,8 @@ class Item:
             return f"enchanted {self.name}"
         if self.kind == ItemKind.WAND:
             return f"{self.name} ({self.charges})"
+        if self.kind == ItemKind.ARROW:
+            return f"arrows ({self.charges})"
         return self.name
 
 
@@ -57,6 +60,14 @@ def create(x: int, y: int, depth: int, rng: random.Random) -> ItemEntity:
         item.wand_range = 6
         item.charges = 3 + rng.randrange(3)
         ie.item = item
+    elif rng.randrange(100) < 15:
+        item = Item()
+        item.name = "arrows"
+        item.glyph = "🏹"
+        item.color = Color.GRAY
+        item.kind = ItemKind.ARROW
+        item.charges = rng.randint(5, 12)
+        ie.item = item
     elif rng.randrange(100) < 55:
         item = Item()
         item.name = "healing potion"
@@ -67,13 +78,20 @@ def create(x: int, y: int, depth: int, rng: random.Random) -> ItemEntity:
         ie.item = item
     else:
         bonus = 1 + depth // 2 + rng.randrange(2)
-        idx = max(0, min(bonus - 1, len(_WEAPON_NAMES) - 1))
         item = Item()
-        item.name = _WEAPON_NAMES[idx]
-        item.glyph = "🗡️"
-        item.color = Color.CYAN
-        item.kind = ItemKind.WEAPON
-        item.attack_bonus = bonus
+        if rng.randrange(100) < 25:
+            item.name = "bow"
+            item.glyph = "🏹"
+            item.color = Color.CYAN
+            item.kind = ItemKind.WEAPON
+            item.attack_bonus = bonus
+        else:
+            idx = max(0, min(bonus - 1, len(_WEAPON_NAMES) - 1))
+            item.name = _WEAPON_NAMES[idx]
+            item.glyph = "🗡️"
+            item.color = Color.CYAN
+            item.kind = ItemKind.WEAPON
+            item.attack_bonus = bonus
         ie.item = item
     return ie
 

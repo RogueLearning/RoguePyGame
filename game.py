@@ -41,8 +41,11 @@ class Game:
         
         self._log = MessageLog()
         self._player = Player()
-        self._levels: dict[int, DungeonLevel] = {}
+        self._levels: dict[tuple[str, int], DungeonLevel] = {}
         self._level: DungeonLevel | None = None
+        self._overworld: DungeonLevel | None = None
+        self._in_overworld = True
+        self._current_dungeon_id = ""
         self._quit = False
         self._boss_spawned = False
         
@@ -59,8 +62,17 @@ class Game:
         self._monster_timer = MONSTER_ACT_COOLDOWN
 
     def run(self):
-        self._enter_level(1, from_above=True)
-        self._log.add(f"Welcome to the dungeon. Depth {self._player.depth}.", Color.YELLOW)
+        # Clear and generate overworld at startup
+        self._levels = {}
+        self._boss_spawned = False
+        self._in_overworld = True
+        self._current_dungeon_id = ""
+        gen = MapGenerator(self._rng)
+        self._overworld = gen.generate_overworld()
+        self._level = self._overworld
+        self._player.x, self._player.y = self._overworld.player_spawn
+        self._player.depth = 0
+        self._log.add("Welcome to Rogue PyGame!", Color.YELLOW)
 
         while not self._quit:
             # 1. Dispatch discrete events (like menus, quit, click triggers)
@@ -122,11 +134,17 @@ class Game:
     def _reset_game(self):
         self._player = Player()
         self._levels = {}
-        self._level = None
         self._boss_spawned = False
-        self._enter_level(1, from_above=True)
+        self._in_overworld = True
+        self._current_dungeon_id = ""
+        gen = MapGenerator(self._rng)
+        self._overworld = gen.generate_overworld()
+        self._level = self._overworld
+        self._player.x, self._player.y = self._overworld.player_spawn
+        self._player.depth = 0
         self._log = MessageLog()
-        self._log.add(f"Welcome to the dungeon. Depth {self._player.depth}.", Color.YELLOW)
+        self._log.add("Welcome to the Overworld.", Color.YELLOW)
+        self._log.add("Explore the quadrants, talk to NPCs, and find a dungeon portal [Enter].", Color.GREEN)
         self._active_merchant = None
         self._selected_class_idx = 0
         
@@ -184,6 +202,7 @@ class Game:
             self._player.hp = 30
             self._player.max_hp = 30
             self._player.base_attack = 4
+            self._player.arrows = 15
             
             # Add dagger
             dagger = Item()
@@ -193,15 +212,30 @@ class Game:
             dagger.kind = ItemKind.WEAPON
             dagger.attack_bonus = 1
             self._player.inventory.add(dagger)
-            self._player.inventory.equipped_weapon = dagger
+            
+            # Add bow
+            bow = Item()
+            bow.name = "bow"
+            bow.glyph = "🏹"
+            bow.color = Color.CYAN
+            bow.kind = ItemKind.WEAPON
+            bow.attack_bonus = 2
+            self._player.inventory.add(bow)
+            self._player.inventory.equipped_weapon = bow
 
-        # Clear and generate level 1
+        # Clear and generate overworld
         self._levels = {}
-        self._level = None
         self._boss_spawned = False
-        self._enter_level(1, from_above=True)
+        self._in_overworld = True
+        self._current_dungeon_id = ""
+        gen = MapGenerator(self._rng)
+        self._overworld = gen.generate_overworld()
+        self._level = self._overworld
+        self._player.x, self._player.y = self._overworld.player_spawn
+        self._player.depth = 0
         self._log = MessageLog()
-        self._log.add(f"Welcome, {class_name}! Depth {self._player.depth}.", Color.YELLOW)
+        self._log.add(f"Welcome, {class_name}! You are in the Overworld.", Color.YELLOW)
+        self._log.add("Explore the quadrants, talk to NPCs, and find a dungeon portal [Enter].", Color.GREEN)
         self._active_merchant = None
         
         # Reset visual position arrays
@@ -387,15 +421,41 @@ class Game:
         self._highscores = self._highscores[:10]
         _save_scores(self._highscores)
 
-    def _enter_level(self, depth: int, from_above: bool):
-        level = self._levels.get(depth)
+    def _enter_level(self, dungeon_id: str, depth: int, from_above: bool):
+        # Transition to Overworld
+        if depth == 0:
+            self._in_overworld = True
+            self._level = self._overworld
+            self._player.depth = 0
+            
+            # Spawn at the entrance the player ascended from
+            if self._current_dungeon_id == "crypt":
+                spawn = (5, 13)
+            elif self._current_dungeon_id == "cellar":
+                spawn = (20, 4)
+            elif self._current_dungeon_id == "cave":
+                spawn = (24, 13)
+            else:
+                spawn = self._overworld.player_spawn
+                
+            self._player.x, self._player.y = spawn
+            self._player.update_appearance()
+            self._current_dungeon_id = ""
+            return
+
+        # Transition to a Dungeon
+        self._in_overworld = False
+        self._current_dungeon_id = dungeon_id
+        
+        level = self._levels.get((dungeon_id, depth))
         if level is None:
             gen = MapGenerator(self._rng)
             level = gen.generate(MAP_WIDTH, MAP_HEIGHT, depth, not self._boss_spawned)
-            self._levels[depth] = level
+            self._levels[(dungeon_id, depth)] = level
             if any(m.is_boss for m in level.monsters):
                 self._boss_spawned = True
                 self._log.add("An ominous presence stalks this floor...", Color.DARK_RED)
+                
         self._level = level
         self._player.depth = depth
 
@@ -455,6 +515,8 @@ class Game:
                 self._state = GameState.SHOP
             elif getattr(monster, "is_chest", False):
                 self._interact_with_chest(monster)
+            elif getattr(monster, "is_npc", False):
+                self._interact_with_npc(monster)
             else:
                 self._attack_monster(monster)
             return True
@@ -464,13 +526,21 @@ class Game:
         self._player.x = nx
         self._player.y = ny
 
-        # Auto-pickup coins
+        # Auto-pickup coins and arrows
         ie = self._level.item_at(nx, ny)
         if ie is not None and ie.item.kind.value == "coin":
             self._player.coins += ie.item.coin_value
             self._log.add(f"You find {ie.item.coin_value} gold coins!", Color.YELLOW)
             self._renderer.add_damage_text(self._player.x, self._player.y, f"+{ie.item.coin_value} Gold", (240, 200, 30))
             self._renderer.add_particles(self._player.x, self._player.y, (240, 200, 30), count=6)
+            if ie in self._level.items:
+                self._level.items.remove(ie)
+            self._sound.play("pickup")
+        elif ie is not None and ie.item.kind == ItemKind.ARROW:
+            self._player.arrows = getattr(self._player, "arrows", 0) + ie.item.charges
+            self._log.add(f"You pick up {ie.item.charges} arrows.", Color.CYAN)
+            self._renderer.add_damage_text(self._player.x, self._player.y, f"+{ie.item.charges} Arrows", (200, 200, 200))
+            self._renderer.add_particles(self._player.x, self._player.y, (220, 220, 220), count=6)
             if ie in self._level.items:
                 self._level.items.remove(ie)
             self._sound.play("pickup")
@@ -511,7 +581,15 @@ class Game:
         self._renderer.add_damage_text(x, y, "BLESSED!", (240, 200, 30))
 
     def _attack_monster(self, m: Monster):
+        if getattr(m, "is_npc", False):
+            self._interact_with_npc(m)
+            return
+
         weapon = self._player.inventory.equipped_weapon
+        is_enchanted = weapon is not None and getattr(weapon, "is_enchanted", False)
+        slash_color = (255, 215, 0) if is_enchanted else (150, 220, 255)
+        self._renderer.add_slash(m.x, m.y, self._player.facing, slash_color)
+
         if m.is_boss and not (weapon is not None and weapon.is_enchanted):
             self._log.add(f"Your attack glances off the {m.name}. Only enchanted steel can harm it!", Color.YELLOW)
             self._renderer.add_bump(self._player, (m.x, m.y))
@@ -575,6 +653,15 @@ class Game:
                 self._level.items.remove(ie)
             self._sound.play("pickup")
             return True
+        if ie.item.kind == ItemKind.ARROW:
+            self._player.arrows = getattr(self._player, "arrows", 0) + ie.item.charges
+            self._log.add(f"You pick up {ie.item.charges} arrows.", Color.CYAN)
+            self._renderer.add_damage_text(self._player.x, self._player.y, f"+{ie.item.charges} Arrows", (200, 200, 200))
+            self._renderer.add_particles(self._player.x, self._player.y, (220, 220, 220), count=6)
+            if ie in self._level.items:
+                self._level.items.remove(ie)
+            self._sound.play("pickup")
+            return True
         if not self._player.inventory.add(ie.item):
             self._log.add("Your pack is full.", Color.RED)
             return False
@@ -611,6 +698,14 @@ class Game:
             self._renderer.add_damage_text(self._player.x, self._player.y, "READY", (200, 60, 200))
         elif item.kind == ItemKind.KEY:
             self._log.add("Use keys by walking into locked chests.", Color.YELLOW)
+        elif item.kind == ItemKind.ARROW:
+            self._log.add("Arrows are used automatically when attacking with a Bow.", Color.YELLOW)
+
+    def _interact_with_npc(self, npc):
+        self._sound.play("walk")
+        self._renderer.add_bump(self._player, (npc.x, npc.y))
+        dialogue = self._rng.choice(npc.dialogues)
+        self._log.add(f"{npc.name}: \"{dialogue}\"", Color.WHITE)
 
     def _interact_with_chest(self, m):
         if m.is_mimic:
@@ -757,14 +852,27 @@ class Game:
         return x, y
 
     def _try_descend(self) -> bool:
-        if self._level.tiles[self._player.x][self._player.y].type != TileType.STAIRS_DOWN:
-            self._log.add("No stairs down here.", Color.DARK_GRAY)
-            return False
-        self._enter_level(self._player.depth + 1, from_above=True)
-        self._log.add(f"You descend to depth {self._player.depth}.", Color.YELLOW)
+        if self._in_overworld:
+            px, py = self._player.x, self._player.y
+            if (px, py) == (5, 13):
+                dungeon_id = "crypt"
+            elif (px, py) == (20, 4):
+                dungeon_id = "cellar"
+            elif (px, py) == (24, 13):
+                dungeon_id = "cave"
+            else:
+                self._log.add("No stairs down here.", Color.DARK_GRAY)
+                return False
+            self._enter_level(dungeon_id, 1, from_above=True)
+            self._log.add(f"You enter the {dungeon_id.capitalize()} Dungeon.", Color.YELLOW)
+        else:
+            if self._level.tiles[self._player.x][self._player.y].type != TileType.STAIRS_DOWN:
+                self._log.add("No stairs down here.", Color.DARK_GRAY)
+                return False
+            self._enter_level(self._current_dungeon_id, self._player.depth + 1, from_above=True)
+            self._log.add(f"You descend to depth {self._player.depth}.", Color.YELLOW)
+            
         self._sound.play("stairs")
-        
-        # Magic stairs transition flash
         self._renderer.trigger_shake(8.0)
         self._renderer.add_particles(self._player.x, self._player.y, (240, 205, 35), count=15)
         return True
@@ -780,6 +888,15 @@ class Game:
             dx = -1
         elif facing == "RIGHT":
             dx = 1
+
+        # Check if Bow is equipped and has arrows. If so, shoot!
+        weapon = self._player.inventory.equipped_weapon
+        if weapon is not None and weapon.name == "bow":
+            if getattr(self._player, "arrows", 0) <= 0:
+                self._log.add("You have no arrows left!", Color.DARK_GRAY)
+                return False
+            self._fire_arrow(dx, dy)
+            return True
 
         # Check if wand is equipped and has charges. If so, zap lightning!
         wand = self._player.inventory.equipped_wand
@@ -798,14 +915,116 @@ class Game:
                 self._state = GameState.SHOP
             elif getattr(monster, "is_chest", False):
                 self._interact_with_chest(monster)
+            elif getattr(monster, "is_npc", False):
+                self._interact_with_npc(monster)
             else:
                 self._attack_monster(monster)
             return True
 
         # Swing in air (visually bump and show message)
         self._renderer.add_bump(self._player, (nx, ny))
+        is_enchanted = weapon is not None and getattr(weapon, "is_enchanted", False)
+        slash_color = (255, 215, 0) if is_enchanted else (150, 220, 255)
+        self._renderer.add_slash(nx, ny, facing, slash_color)
         self._log.add("You swing at thin air.", Color.DARK_GRAY)
         return True
+
+    def _fire_arrow(self, dx: int, dy: int):
+        self._player.arrows = getattr(self._player, "arrows", 0) - 1
+        self._state = GameState.ANIMATING
+        self._sound.play("shoot")
+
+        x, y = self._player.x, self._player.y
+        path = []
+        target_monster = None
+        target_wall = False
+
+        for _ in range(10): # Range of 10 cells
+            x += dx
+            y += dy
+            if not self._level.in_bounds(x, y):
+                break
+            path.append((x, y))
+            if not self._level.tiles[x][y].is_walkable:
+                target_wall = True
+                break
+            m = self._level.monster_at(x, y)
+            if m is not None:
+                target_monster = m
+                break
+
+        if not path:
+            if self._player.is_alive:
+                self._state = GameState.PLAYING
+            else:
+                self._trigger_game_over()
+            return
+
+        def on_projectile_complete():
+            nonlocal target_monster, target_wall
+            if target_wall:
+                self._log.add("The arrow clatters against the wall.", Color.GRAY)
+                # Drop an arrow on the floor at the last walkable tile
+                if len(path) > 1:
+                    drop_x, drop_y = path[-2]
+                else:
+                    drop_x, drop_y = self._player.x, self._player.y
+                
+                # Check if there is already an item there
+                existing = self._level.item_at(drop_x, drop_y)
+                if existing is not None and existing.item.kind == ItemKind.ARROW:
+                    existing.item.charges += 1
+                elif existing is None:
+                    # Spawn new arrow pile containing 1 arrow
+                    from Items.item import ItemEntity
+                    arrow_item = Item()
+                    arrow_item.name = "arrows"
+                    arrow_item.glyph = "🏹"
+                    arrow_item.color = Color.GRAY
+                    arrow_item.kind = ItemKind.ARROW
+                    arrow_item.charges = 1
+                    self._level.items.append(ItemEntity(drop_x, drop_y, arrow_item))
+                    
+            elif target_monster is not None:
+                m = target_monster
+                if getattr(m, "is_npc", False):
+                    self._log.add(f"Your arrow passes harmlessly over {m.name}.", Color.DARK_GRAY)
+                else:
+                    # Deal damage
+                    is_crit = False
+                    if getattr(self._player, "char_class", "") == "Rogue" and self._rng.random() < 0.30:
+                        is_crit = True
+                        
+                    dmg = max(1, self._player.attack + self._rng.randint(-1, 1))
+                    if is_crit:
+                        dmg *= 2
+                        
+                    m.hp -= dmg
+                    self._sound.play("hit")
+                    
+                    if is_crit:
+                        self._log.add(f"Critical strike! You shoot the {m.name} for {dmg}!", Color.YELLOW)
+                        self._renderer.add_damage_text(m.x, m.y, f"CRIT! -{dmg}", (255, 215, 0))
+                        self._renderer.add_particles(m.x, m.y, (255, 215, 0), count=15)
+                    else:
+                        self._log.add(f"You shoot the {m.name} for {dmg}.", Color.WHITE)
+                        self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (220, 55, 55))
+                        self._renderer.add_particles(m.x, m.y, (180, 50, 50), count=8)
+
+                if not m.is_alive:
+                    self._log.add(f"You kill the {m.name}!", Color.GREEN)
+                    self._player.kills += 1
+                    if m in self._level.monsters:
+                        self._level.monsters.remove(m)
+                    self._drop_monster_loot(m)
+
+            if self._player.is_alive:
+                self._state = GameState.PLAYING
+            else:
+                self._trigger_game_over()
+
+        # Launch arrow projectile animation on the renderer (type="arrow")
+        self._renderer.add_projectile(path, on_projectile_complete, type="arrow")
 
     def _start_lightning(self, dx: int, dy: int):
         wand = self._player.inventory.equipped_wand
@@ -838,6 +1057,7 @@ class Game:
             return
 
         wand.charges -= 1
+        self._renderer.trigger_flash(alpha=160, color=(160, 220, 255))
         self._state = GameState.ANIMATING
         self._sound.play("zap")
 
@@ -871,13 +1091,16 @@ class Game:
                         self._log.add("The lightning shocks the chest harmlessly.", Color.DARK_GRAY)
                         self._renderer.add_particles(m.x, m.y, (100, 200, 255), count=4)
                 else:
-                    dmg = wand.wand_damage + self._rng.randint(-1, 1)
-                    m.hp -= dmg
-                    self._log.add(f"The lightning shocks the {m.name} for {dmg}!", Color.CYAN)
-                    
-                    # Floating damage text and sparks
-                    self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (50, 190, 220))
-                    self._renderer.add_particles(m.x, m.y, (100, 200, 255), count=12)
+                    if getattr(m, "is_npc", False):
+                        self._log.add(f"The lightning shocks {m.name} harmlessly.", Color.DARK_GRAY)
+                    else:
+                        dmg = wand.wand_damage + self._rng.randint(-1, 1)
+                        m.hp -= dmg
+                        self._log.add(f"The lightning shocks the {m.name} for {dmg}!", Color.CYAN)
+                        
+                        # Floating damage text and sparks
+                        self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (50, 190, 220))
+                        self._renderer.add_particles(m.x, m.y, (100, 200, 255), count=12)
 
                     if not m.is_alive:
                         self._log.add(f"You shock the {m.name} to dust!", Color.GREEN)
@@ -898,17 +1121,20 @@ class Game:
         self._renderer.add_projectile(path, on_projectile_complete, type="lightning")
 
     def _try_ascend(self) -> bool:
+        if self._in_overworld:
+            self._log.add("You cannot ascend from the overworld.", Color.DARK_GRAY)
+            return False
         if self._level.tiles[self._player.x][self._player.y].type != TileType.STAIRS_UP:
             self._log.add("No stairs up here.", Color.DARK_GRAY)
             return False
         if self._player.depth <= 1:
-            self._log.add("You cannot leave the dungeon yet.", Color.YELLOW)
-            return False
-        self._enter_level(self._player.depth - 1, from_above=False)
-        self._log.add(f"You ascend to depth {self._player.depth}.", Color.YELLOW)
+            self._enter_level("", 0, from_above=False)
+            self._log.add("You ascend to the Overworld.", Color.YELLOW)
+        else:
+            self._enter_level(self._current_dungeon_id, self._player.depth - 1, from_above=False)
+            self._log.add(f"You ascend to depth {self._player.depth}.", Color.YELLOW)
+            
         self._sound.play("stairs")
-        
-        # Ascent particle flash
         self._renderer.trigger_shake(8.0)
         self._renderer.add_particles(self._player.x, self._player.y, (245, 245, 245), count=15)
         return True
@@ -918,6 +1144,10 @@ class Game:
             if not m.is_alive:
                 continue
             if getattr(m, "is_merchant", False):
+                continue
+            if getattr(m, "is_chest", False):
+                continue
+            if getattr(m, "is_npc", False):
                 continue
             if not self._level.tiles[m.x][m.y].visible:
                 continue
@@ -1008,6 +1238,17 @@ class Game:
             self._sound.play("bless")
             self._renderer.add_particles(self._player.x, self._player.y, (240, 200, 30), count=25)
             self._renderer.add_damage_text(self._player.x, self._player.y, "BLESSED!", (240, 200, 30))
+            return
+
+        # Handle purchasing arrows (adds to arrow pool, bypasses inventory pack full check)
+        if item.kind == ItemKind.ARROW:
+            self._player.coins -= price
+            self._player.arrows = getattr(self._player, "arrows", 0) + item.charges
+            merchant.shop_items[slot_idx][2] = True  # Mark sold out
+            self._log.add(f"You bought {item.charges} arrows!", Color.GREEN)
+            self._sound.play("pickup")
+            self._renderer.add_damage_text(self._player.x, self._player.y, f"+{item.charges} Arrows", (200, 200, 200))
+            self._renderer.add_particles(self._player.x, self._player.y, (220, 220, 220), count=10)
             return
 
         # Handle standard items (added to backpack)

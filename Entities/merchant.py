@@ -35,13 +35,20 @@ class Merchant(Monster):
         # Slot 2: Scaling Weapon
         weapon_names = ["dagger", "shortsword", "longsword", "battle axe", "warhammer"]
         bonus = 1 + depth // 2 + rng.randrange(2)
-        idx = max(0, min(bonus - 1, len(weapon_names) - 1))
         weapon = Item()
-        weapon.name = weapon_names[idx]
-        weapon.glyph = "🗡️"
-        weapon.color = Color.CYAN
-        weapon.kind = ItemKind.WEAPON
-        weapon.attack_bonus = bonus
+        if rng.randrange(100) < 25:
+            weapon.name = "bow"
+            weapon.glyph = "🏹"
+            weapon.color = Color.CYAN
+            weapon.kind = ItemKind.WEAPON
+            weapon.attack_bonus = bonus
+        else:
+            idx = max(0, min(bonus - 1, len(weapon_names) - 1))
+            weapon.name = weapon_names[idx]
+            weapon.glyph = "🗡️"
+            weapon.color = Color.CYAN
+            weapon.kind = ItemKind.WEAPON
+            weapon.attack_bonus = bonus
         price = 20 + bonus * 10
         items.append([weapon, price, False])
 
@@ -56,12 +63,21 @@ class Merchant(Monster):
         wand.charges = 3 + rng.randrange(3)
         items.append([wand, 55, False])
 
-        # Slot 4: Enchantment Service (50 gold)
-        enchant = Item()
-        enchant.name = "bless weapon"
-        enchant.glyph = "✨"
-        enchant.color = Color.YELLOW
-        enchant.kind = ItemKind.HEALING_POTION  # dummy kind, checked by name
-        items.append([enchant, 50, False])
+        # Slot 4: Enchantment Service (50 gold) OR Quiver of Arrows (15 gold)
+        if rng.randrange(100) < 30:
+            arrows = Item()
+            arrows.name = "quiver of arrows"
+            arrows.glyph = "🏹"
+            arrows.color = Color.GRAY
+            arrows.kind = ItemKind.ARROW
+            arrows.charges = 15
+            items.append([arrows, 15, False])
+        else:
+            enchant = Item()
+            enchant.name = "bless weapon"
+            enchant.glyph = "✨"
+            enchant.color = Color.YELLOW
+            enchant.kind = ItemKind.HEALING_POTION  # dummy kind, checked by name
+            items.append([enchant, 50, False])
 
         return items
