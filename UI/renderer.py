@@ -22,6 +22,15 @@ LOG_HEIGHT = 144
 TOTAL_WIDTH = MAP_PIXEL_WIDTH + SIDEBAR_WIDTH
 TOTAL_HEIGHT = MAP_PIXEL_HEIGHT + LOG_HEIGHT
 
+# Atari-like arcade palette anchors.
+ATARI_BG = (8, 12, 22)
+ATARI_PANEL = (14, 20, 34)
+ATARI_PANEL_BORDER = (42, 78, 132)
+ATARI_NEON_CYAN = (84, 198, 255)
+ATARI_NEON_YELLOW = (248, 208, 74)
+ATARI_NEON_ORANGE = (238, 126, 46)
+ATARI_PURPLE = (92, 66, 166)
+
 
 class RetroFont:
     """Thin wrapper around pygame.font that forces anti-aliasing OFF, giving
@@ -57,7 +66,7 @@ class Renderer:
             pygame.font.init()
 
         self._screen = pygame.display.set_mode((TOTAL_WIDTH, TOTAL_HEIGHT))
-        pygame.display.set_caption("Rogue PyGame - Wizard's Quest")
+        pygame.display.set_caption("Rogue PyGame - Arcade Dungeon")
 
         # Fonts
         self._init_fonts()
@@ -312,7 +321,7 @@ class Renderer:
         self.update_animations()
 
         # Background clearing
-        self._screen.fill((12, 12, 16))
+        self._screen.fill(ATARI_BG)
 
         # Calculate screen shake offset
         shake_x = 0
@@ -428,23 +437,23 @@ class Renderer:
                             self._draw_cave_entrance(rect, visible)
                 else:
                     if t.type == TileType.WALL:
-                        color = color_rgb(Color.DARK_CYAN) if visible else color_rgb(Color.DARK_BLUE)
+                        color = (44, 86, 154) if visible else (24, 42, 78)
                         self._draw_brick_wall(rect, color)
                     elif t.type == TileType.FLOOR:
-                        color = (36, 32, 28) if visible else (20, 20, 24)
+                        color = (34, 24, 44) if visible else (18, 14, 26)
                         self._draw_floor(rect, color, visible)
                     elif t.type == TileType.STAIRS_DOWN:
-                        color = (25, 23, 20) if visible else (16, 16, 20)
+                        color = (34, 24, 44) if visible else (18, 14, 26)
                         self._draw_floor(rect, color, visible)
-                        stairs_color = color_rgb(Color.YELLOW) if visible else color_rgb(Color.DARK_YELLOW)
+                        stairs_color = (250, 198, 64) if visible else (138, 96, 30)
                         self._draw_stairs_down(rect, stairs_color)
                     elif t.type == TileType.STAIRS_UP:
-                        color = (25, 23, 20) if visible else (16, 16, 20)
+                        color = (34, 24, 44) if visible else (18, 14, 26)
                         self._draw_floor(rect, color, visible)
-                        stairs_color = color_rgb(Color.WHITE) if visible else color_rgb(Color.GRAY)
+                        stairs_color = (174, 224, 255) if visible else (92, 128, 168)
                         self._draw_stairs_up(rect, stairs_color)
                     elif t.type == TileType.FOUNTAIN:
-                        color = (25, 23, 20) if visible else (16, 16, 20)
+                        color = (34, 24, 44) if visible else (18, 14, 26)
                         self._draw_floor(rect, color, visible)
                         self._draw_fountain(rect, visible)
 
@@ -547,29 +556,36 @@ class Renderer:
         pygame.draw.ellipse(self._screen, rock_color, (rect.left + 3, rect.top + 3, rect.width - 6, rect.height - 6), width=2)
 
     def _draw_brick_wall(self, rect: pygame.Rect, color: tuple[int, int, int]):
+        # Chunky 8-bit wall blocks with dithering and hard highlights.
         pygame.draw.rect(self._screen, color, rect)
-        
-        # Highlight and shadow borders for 3D bevel look
-        hl = tuple(min(255, c + 35) for c in color)
-        sd = tuple(max(0, c - 30) for c in color)
-        pygame.draw.line(self._screen, hl, rect.topleft, rect.topright)
-        pygame.draw.line(self._screen, hl, rect.topleft, rect.bottomleft)
-        pygame.draw.line(self._screen, sd, rect.bottomleft, rect.bottomright)
-        pygame.draw.line(self._screen, sd, rect.topright, rect.bottomright)
+        hi = tuple(min(255, c + 40) for c in color)
+        lo = tuple(max(0, c - 36) for c in color)
+        pygame.draw.rect(self._screen, hi, (rect.left, rect.top, rect.width, 3))
+        pygame.draw.rect(self._screen, hi, (rect.left, rect.top, 3, rect.height))
+        pygame.draw.rect(self._screen, lo, (rect.left, rect.bottom - 3, rect.width, 3))
+        pygame.draw.rect(self._screen, lo, (rect.right - 3, rect.top, 3, rect.height))
 
-        # Mortar bricks
         mortar = tuple(max(0, c - 20) for c in color)
-        pygame.draw.line(self._screen, mortar, (rect.left, rect.top + 16), (rect.right, rect.top + 16))
-        pygame.draw.line(self._screen, mortar, (rect.left + 16, rect.top), (rect.left + 16, rect.top + 16))
-        pygame.draw.line(self._screen, mortar, (rect.left + 8, rect.top + 16), (rect.left + 8, rect.bottom))
+        for y in range(rect.top + 8, rect.bottom, 8):
+            pygame.draw.line(self._screen, mortar, (rect.left + 2, y), (rect.right - 2, y), 1)
+        for x in range(rect.left + 6, rect.right, 12):
+            pygame.draw.line(self._screen, mortar, (x, rect.top + 2), (x, rect.top + 12), 1)
+            pygame.draw.line(self._screen, mortar, (x + 6, rect.top + 14), (x + 6, rect.bottom - 2), 1)
 
     def _draw_floor(self, rect: pygame.Rect, color: tuple[int, int, int], visible: bool):
         pygame.draw.rect(self._screen, color, rect)
-        
-        # Draw neat dot patterns representing floor gravel
-        dot_color = (80, 70, 60) if visible else (45, 45, 50)
-        pygame.draw.circle(self._screen, dot_color, (rect.centerx - 6, rect.centery), 1)
-        pygame.draw.circle(self._screen, dot_color, (rect.centerx + 6, rect.centery), 1)
+
+        # Ordered dither to mimic low-color arcade tile shading.
+        dot_color = (66, 52, 90) if visible else (34, 30, 48)
+        for dx in range(2, TILE_SIZE, 4):
+            for dy in range(2, TILE_SIZE, 4):
+                if ((rect.x + dx) // 2 + (rect.y + dy) // 2) % 2 == 0:
+                    self._screen.fill(dot_color, (rect.x + dx, rect.y + dy, 2, 2))
+
+        if visible:
+            pulse = 1 if (self._frame_count // 24) % 2 == 0 else 0
+            glow = (96 + 12 * pulse, 66 + 8 * pulse, 130 + 16 * pulse)
+            pygame.draw.rect(self._screen, glow, (rect.left + 3, rect.top + 3, 2, 2))
 
     def _draw_stairs_down(self, rect: pygame.Rect, color: tuple[int, int, int]):
         # Series of step bars leading down
@@ -1026,9 +1042,13 @@ class Renderer:
             pygame.draw.circle(self._screen, color, rect.center, 8)
 
     def _draw_player_sprite(self, rect: pygame.Rect, color: tuple[int, int, int], enchanted: bool, player: Player = None):
+        # Ground shadow anchors the sprite while it bobs.
+        shadow_rect = pygame.Rect(rect.left + 5, rect.bottom - 8, 22, 7)
+        pygame.draw.ellipse(self._screen, (8, 8, 12), shadow_rect)
+
         # Glow ring if enchanted
         if enchanted:
-            pygame.draw.circle(self._screen, (240, 200, 30), rect.center, 13, 2)
+            pygame.draw.circle(self._screen, (246, 206, 66), rect.center, 13, 2)
 
         char_class = "Wizard"
         if player and hasattr(player, "char_class"):
@@ -1051,12 +1071,25 @@ class Renderer:
             if is_moving or attacking:
                 # Full walk cycle while moving / lunging.
                 frame_idx = (self._frame_count // 5) % 4
+                bob = int(math.sin(self._frame_count * 0.5) * 1.5)
+                if self._frame_count % 7 == 0:
+                    self._particles.append({
+                        "x": rect.centerx + random.uniform(-5, 5),
+                        "y": rect.bottom - 5,
+                        "vx": random.uniform(-0.25, 0.25),
+                        "vy": random.uniform(-0.55, -0.2),
+                        "color": (120, 120, 138),
+                        "size": random.uniform(1.0, 2.0),
+                        "life": random.uniform(0.18, 0.32),
+                        "max_life": 1.0,
+                    })
             else:
-                # Idle "breathing" bob: alternate the two stand poses slowly.
-                frame_idx = 0 if (self._frame_count // 26) % 2 == 0 else 2
+                # Idle animation cycles through all poses with a slow breathing bob.
+                frame_idx = (self._frame_count // 14) % 4
+                bob = int(math.sin(self._frame_count * 0.17) * 2)
 
             src_rect = pygame.Rect(frame_idx * 32, row * 32, 32, 32)
-            self._screen.blit(sheet, rect.topleft, src_rect)
+            self._screen.blit(sheet, (rect.left, rect.top + bob), src_rect)
             return
 
         # Fallback vector sprites for classes
@@ -1326,8 +1359,8 @@ class Renderer:
         sx = MAP_PIXEL_WIDTH
         
         # Sidebar Panel Divider / Panel Background
-        pygame.draw.rect(self._screen, (20, 20, 26), (sx, 0, SIDEBAR_WIDTH, TOTAL_HEIGHT))
-        pygame.draw.line(self._screen, (40, 40, 50), (sx, 0), (sx, TOTAL_HEIGHT), 2)
+        pygame.draw.rect(self._screen, ATARI_PANEL, (sx, 0, SIDEBAR_WIDTH, TOTAL_HEIGHT))
+        pygame.draw.line(self._screen, ATARI_PANEL_BORDER, (sx, 0), (sx, TOTAL_HEIGHT), 2)
 
         # Header Status
         self._draw_text(sx + 20, 20, "-- STATUS --", color_rgb(Color.YELLOW), font=self._header_font)
@@ -1406,8 +1439,8 @@ class Renderer:
         y_top = MAP_PIXEL_HEIGHT
         
         # Message log border separator
-        pygame.draw.rect(self._screen, (10, 10, 14), (0, y_top, MAP_PIXEL_WIDTH, LOG_HEIGHT))
-        pygame.draw.line(self._screen, (40, 40, 50), (0, y_top), (MAP_PIXEL_WIDTH, y_top), 2)
+        pygame.draw.rect(self._screen, (10, 14, 24), (0, y_top, MAP_PIXEL_WIDTH, LOG_HEIGHT))
+        pygame.draw.line(self._screen, ATARI_PANEL_BORDER, (0, y_top), (MAP_PIXEL_WIDTH, y_top), 2)
         
         # Render rolling text messages
         row = 0
@@ -1618,24 +1651,24 @@ class Renderer:
             self._screen.blit(price_surf, (slot_x + slot_w - price_surf.get_width() - 20, slot_y + (slot_h - price_surf.get_height()) // 2))
 
     def render_title_screen(self, highscores):
-        self._screen.fill((10, 10, 14))
+        self._screen.fill((8, 10, 20))
 
         # Draw procedural background sparkles
         for _ in range(30):
             x = random.randint(10, TOTAL_WIDTH - 10)
             y = random.randint(10, TOTAL_HEIGHT - 10)
             size = random.choice([1, 2])
-            pygame.draw.circle(self._screen, (60, 60, 80), (x, y), size)
+            pygame.draw.circle(self._screen, (66, 96, 150), (x, y), size)
 
         # Big Title Logo
-        t_surf = self._title_font.render("WIZARD'S DUNGEON", True, color_rgb(Color.YELLOW))
+        t_surf = self._title_font.render("ARCADE DUNGEON", True, ATARI_NEON_YELLOW)
         self._screen.blit(t_surf, ((TOTAL_WIDTH - t_surf.get_width()) // 2, 80))
         
-        st_surf = self._header_font.render("A Graphical Pygame Roguelike Quest", True, color_rgb(Color.CYAN))
+        st_surf = self._header_font.render("1983-STYLE PIXEL CRAWLER", True, ATARI_NEON_CYAN)
         self._screen.blit(st_surf, ((TOTAL_WIDTH - st_surf.get_width()) // 2, 140))
 
         # Draw a line divider
-        pygame.draw.line(self._screen, (40, 50, 75), (TOTAL_WIDTH // 4, 180), (TOTAL_WIDTH * 3 // 4, 180), 2)
+        pygame.draw.line(self._screen, ATARI_PANEL_BORDER, (TOTAL_WIDTH // 4, 180), (TOTAL_WIDTH * 3 // 4, 180), 2)
 
         # Highscores panel centered
         hs_x = (TOTAL_WIDTH - 400) // 2
@@ -1668,14 +1701,14 @@ class Renderer:
 
     def render_class_select(self, selected_class_idx: int):
         self._frame_count += 1  # advance so the hero previews animate
-        self._screen.fill((10, 10, 14))
+        self._screen.fill((8, 10, 20))
 
         # Background sparkles
         for _ in range(30):
             x = random.randint(10, TOTAL_WIDTH - 10)
             y = random.randint(10, TOTAL_HEIGHT - 10)
             size = random.choice([1, 2])
-            pygame.draw.circle(self._screen, (60, 60, 80), (x, y), size)
+            pygame.draw.circle(self._screen, (66, 96, 150), (x, y), size)
 
         # Main Title Header
         title_surf = self._title_font.render("SELECT YOUR HERO CLASS", True, color_rgb(Color.YELLOW))
@@ -1737,12 +1770,12 @@ class Renderer:
             
             # Select background and border colors
             if selected:
-                bg_color = (36, 30, 26)
-                border_color = (255, 215, 0)
+                bg_color = (26, 24, 40)
+                border_color = ATARI_NEON_ORANGE
                 border_width = 3
             else:
-                bg_color = (18, 18, 22)
-                border_color = (60, 60, 65)
+                bg_color = (16, 16, 28)
+                border_color = (56, 70, 108)
                 border_width = 1
 
             pygame.draw.rect(self._screen, bg_color, card_rect, border_radius=8)
@@ -1797,7 +1830,7 @@ class Renderer:
         pygame.display.flip()
 
     def render_game_over(self, player: Player, highscores: list):
-        self._screen.fill((15, 10, 10))
+        self._screen.fill((22, 10, 14))
 
         # Title
         go_surf = self._title_font.render("GAME OVER", True, color_rgb(Color.RED))

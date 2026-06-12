@@ -1,21 +1,12 @@
 """
 create_arcade_sprites.py
 ------------------------------------------------------------------
-Generates chunky, 80s-arcade-style pixel-art spritesheets for the
-player classes and the dungeon monsters.
+Builds crunchy late-70s/early-80s arcade pixel art for classes and
+monsters with a small, saturated palette and exaggerated silhouettes.
 
-Everything is authored on a coarse 16x16 logical grid and blown up so
-each "art pixel" becomes a fat block -- the look you'd get on an Atari
-or early-NES era machine.  A tight, limited palette keeps the retro
-feel consistent across every sprite.
-
-Output (run this file to (re)generate):
-    assets/players/<class>.png   128x128  (4 dirs x 4 walk frames, 32px cells)
-    assets/sprites/<monster>.png 64x32    (2-frame idle animation, 32px cells)
-
-The renderer loads these and animates them.  Frames are generated
-programmatically from hand-authored body art + procedural legs so we
-get a full walk cycle without authoring every frame by hand.
+Output (run this file to regenerate):
+    assets/players/<class>.png   128x128  (4 dirs x 4 frames)
+    assets/sprites/<monster>.png 64x32    (2-frame idle loop)
 """
 
 import os
@@ -29,43 +20,43 @@ GRID = 16          # logical art grid (16x16)
 PIX = CELL // GRID  # size of one art-pixel block (2)
 
 # ------------------------------------------------------------------
-# Limited retro palette.  '.' = transparent.
+# Atari-inspired palette. '.' = transparent.
 # ------------------------------------------------------------------
 PALETTE = {
     '.': None,
-    'K': (16, 14, 24),     # near-black outline
-    'W': (236, 236, 242),  # white
-    'S': (176, 186, 202),  # steel
-    'D': (96, 106, 128),   # dark steel
-    'L': (222, 230, 242),  # light steel highlight
-    'R': (214, 48, 48),    # red
-    'r': (150, 28, 28),    # dark red
-    'G': (246, 206, 54),   # gold
-    'g': (182, 140, 22),   # dark gold
-    'B': (56, 112, 216),   # blue
-    'b': (34, 68, 150),    # dark blue
-    'P': (150, 64, 214),   # purple
-    'p': (96, 36, 160),    # dark purple
-    'C': (78, 216, 255),   # cyan gem / glow
-    'N': (52, 168, 80),    # green
-    'n': (28, 104, 50),    # dark green
-    'k': (242, 188, 138),  # skin
-    'j': (202, 142, 98),   # skin shadow
-    'w': (122, 80, 40),    # wood / brown
-    'o': (236, 124, 42),   # orange
-    'y': (250, 236, 124),  # light yellow
-    'M': (190, 74, 152),   # magenta / tongue
-    'E': (236, 42, 42),    # glowing eye
-    'F': (122, 128, 140),  # gray
-    'f': (58, 62, 72),     # dark gray
-    'A': (132, 206, 255),  # ghost blue
-    'a': (74, 150, 210),   # ghost blue shadow
-    'h': (118, 80, 44),    # hair / hide brown
-    'O': (60, 64, 40),     # olive (goblin)
-    'q': (40, 44, 26),     # dark olive
-    'T': (120, 150, 90),   # troll green
-    't': (78, 104, 56),    # troll dark
-    'z': (150, 158, 168),  # bone
+    'K': (14, 16, 24),
+    'W': (236, 236, 228),
+    'S': (166, 174, 190),
+    'D': (86, 98, 124),
+    'L': (220, 228, 246),
+    'R': (220, 66, 52),
+    'r': (146, 34, 24),
+    'G': (248, 204, 78),
+    'g': (172, 122, 36),
+    'B': (64, 128, 214),
+    'b': (36, 74, 144),
+    'P': (140, 78, 216),
+    'p': (92, 48, 158),
+    'C': (96, 216, 255),
+    'N': (64, 176, 92),
+    'n': (34, 108, 56),
+    'k': (238, 184, 132),
+    'j': (188, 132, 90),
+    'w': (126, 84, 46),
+    'o': (238, 136, 50),
+    'y': (248, 228, 112),
+    'M': (194, 78, 154),
+    'E': (252, 60, 48),
+    'F': (124, 130, 142),
+    'f': (62, 66, 76),
+    'A': (140, 212, 255),
+    'a': (76, 154, 212),
+    'h': (128, 88, 48),
+    'O': (72, 74, 46),
+    'q': (42, 46, 28),
+    'T': (126, 154, 94),
+    't': (82, 108, 60),
+    'z': (154, 160, 170),
 }
 
 
@@ -230,13 +221,25 @@ CLASS_ART = {
 # Walk cycle: foot vertical offsets per frame (in art-pixels) for L/R foot.
 #   frame 0: stand   1: left-step   2: stand   3: right-step
 WALK = [
-    (0, 0),    # stand
-    (-1, 1),   # left foot up, right planted forward
-    (0, 0),    # stand
-    (1, -1),   # right foot up
+    (0, 0),
+    (-1, 1),
+    (0, 0),
+    (1, -1),
 ]
-# Body bob (art-pixels) per frame -- gentle up/down while walking.
 BOB = [0, -1, 0, -1]
+
+
+def draw_class_fx(surf, cls_name, direction, frame, ox=0, oy=0):
+    """Small per-frame accents that sell animation at low resolution."""
+    # Weapon glint / robe flicker every other frame.
+    if cls_name == "knight" and frame % 2 == 0:
+        surf.fill(PALETTE['y'], (ox + 11 * PIX, oy + 7 * PIX, PIX, PIX))
+    if cls_name == "wizard":
+        flame = PALETTE['C'] if frame % 2 == 0 else PALETTE['W']
+        surf.fill(flame, (ox + 2 * PIX, oy + 10 * PIX, PIX, PIX))
+    if cls_name == "rogue" and direction in ("down", "up"):
+        blink = PALETTE['C'] if frame in (1, 3) else PALETTE['W']
+        surf.fill(blink, (ox + 7 * PIX, oy + 4 * PIX, PIX, PIX))
 
 
 def draw_legs(surf, ox, oy, direction, frame, boot, boot_hi):
@@ -271,8 +274,10 @@ def make_player_sheet(name, art):
         for f in range(4):
             cell = pygame.Surface((CELL, CELL), pygame.SRCALPHA)
             bob = BOB[f] * PIX
-            blit_pixmap(cell, body, 0, bob)
-            draw_legs(cell, 0, bob, direction, f, art["boot"], art["boot_hi"])
+            sway = (-1 if f == 1 else (1 if f == 3 else 0)) * PIX
+            blit_pixmap(cell, body, sway, bob)
+            draw_legs(cell, sway, bob, direction, f, art["boot"], art["boot_hi"])
+            draw_class_fx(cell, name, direction, f, sway, bob)
             if flip:
                 cell = pygame.transform.flip(cell, True, False)
             sheet.blit(cell, (f * CELL, r * CELL))
@@ -469,15 +474,24 @@ MONSTERS = {
 
 
 def make_monster_sheet(name, art):
-    """2-frame idle: frame 0 normal, frame 1 squashed+bobbed 1px."""
+    """2-frame idle: frame 0 normal, frame 1 shifted + tiny feature flicker."""
     sheet = pygame.Surface((CELL * 2, CELL), pygame.SRCALPHA)
     # frame 0
     f0 = pygame.Surface((CELL, CELL), pygame.SRCALPHA)
     blit_pixmap(f0, art, 0, 0)
     sheet.blit(f0, (0, 0))
-    # frame 1: nudge down 1 art-pixel for a breathing/hover wobble
+    # frame 1 wobble
     f1 = pygame.Surface((CELL, CELL), pygame.SRCALPHA)
-    blit_pixmap(f1, art, 0, PIX)
+    wobble_x = PIX if len(name) % 2 == 0 else 0
+    blit_pixmap(f1, art, wobble_x, PIX)
+
+    # Low-res "blink" accent for monsters with eye pixels.
+    eye_px = PALETTE['E']
+    blink_px = PALETTE['W']
+    for x in range(0, CELL, PIX):
+        for y in range(0, CELL, PIX):
+            if f1.get_at((x, y))[:3] == eye_px:
+                f1.fill(blink_px, (x, y, PIX, PIX))
     sheet.blit(f1, (CELL, 0))
     os.makedirs("assets/sprites", exist_ok=True)
     safe = name.replace(" ", "_")
