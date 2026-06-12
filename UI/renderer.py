@@ -23,6 +23,31 @@ TOTAL_WIDTH = MAP_PIXEL_WIDTH + SIDEBAR_WIDTH
 TOTAL_HEIGHT = MAP_PIXEL_HEIGHT + LOG_HEIGHT
 
 
+class RetroFont:
+    """Thin wrapper around pygame.font that forces anti-aliasing OFF, giving
+    text hard 1-bit pixel edges -- the classic arcade-cabinet look. Caches
+    rendered gl-text surfaces since UI strings repeat every frame."""
+
+    def __init__(self, name, size, bold=False):
+        try:
+            self._font = pygame.font.SysFont(name, size, bold=bold)
+        except Exception:
+            self._font = pygame.font.SysFont(None, size, bold=bold)
+        self._cache = {}
+
+    def render(self, text, _aa, color):
+        key = (text, tuple(color))
+        surf = self._cache.get(key)
+        if surf is None:
+            surf = self._font.render(text, False, color)  # antialias OFF
+            if len(self._cache) < 512:
+                self._cache[key] = surf
+        return surf
+
+    def size(self, text):
+        return self._font.size(text)
+
+
 class Renderer:
     def __init__(self):
         # Initialize pygame display
@@ -53,40 +78,74 @@ class Renderer:
         self._flash_alpha = 0.0
         self._flash_color = (255, 255, 255)
 
-        # Load animated spritesheet
-        self._spritesheet = None
-        try:
-            self._spritesheet = pygame.image.load("assets/knight_spritesheet.png").convert_alpha()
-        except Exception:
-            pass
+        # Load animated player class spritesheets (128x128: 4 dirs x 4 frames)
+        self._player_sheets = {}
+        for cls in ("knight", "wizard", "rogue"):
+            try:
+                self._player_sheets[cls] = pygame.image.load(
+                    f"assets/players/{cls}.png").convert_alpha()
+            except Exception:
+                pass
+
+        # Load animated monster sprites (64x32: 2-frame idle wobble)
+        self._monster_sprites = {}
+        for mname in ("rat", "goblin", "orc", "troll", "wraith", "dread_knight",
+                      "dragon", "mimic", "chest", "locked_chest"):
+            try:
+                self._monster_sprites[mname] = pygame.image.load(
+                    f"assets/sprites/{mname}.png").convert_alpha()
+            except Exception:
+                pass
+
+        # Pre-build the CRT scanline + vignette overlay for the 8-bit arcade look
+        self._crt_overlay = self._build_crt_overlay()
 
 
     def _init_fonts(self):
-        # Try to find a premium looking font, fallback to standard system fonts
-        self._ui_font = None
-        font_name = None
-        for name in ["outfit", "inter", "segoe ui", "helvetica", "arial", "courier"]:
+        # 8-bit arcade look: fixed-width font, anti-aliasing forced OFF so the
+        # glyphs stay crisp and blocky like an old cabinet.
+        mono = None
+        for name in ["pressstart2p", "press start 2p", "monaco", "menlo",
+                     "consolas", "courier new", "courier", "monospace"]:
             try:
-                self._ui_font = pygame.font.SysFont(name, 18)
-                if self._ui_font:
-                    font_name = name
+                f = pygame.font.SysFont(name, 16)
+                if f:
+                    mono = name
                     break
             except Exception:
                 pass
-        if not self._ui_font:
-            self._ui_font = pygame.font.SysFont(None, 18)
 
-        # Bold headers
-        self._header_font = pygame.font.SysFont(font_name, 22, bold=True)
-        # Title font
-        self._title_font = pygame.font.SysFont(font_name, 48, bold=True)
-        # Log font - monospaced is nice, fallback to UI font
-        self._log_font = None
-        try:
-            self._log_font = pygame.font.SysFont("courier", 16)
-        except Exception:
-            self._log_font = self._ui_font
+        self._ui_font = RetroFont(mono, 16)
+        self._header_font = RetroFont(mono, 18, bold=True)
+        self._title_font = RetroFont(mono, 40, bold=True)
+        self._log_font = RetroFont(mono, 15)
 
+
+    def _build_crt_overlay(self):
+        """Pre-render a CRT scanline + vignette overlay blitted over the whole
+        frame each tick for an 80s arcade-cabinet feel."""
+        overlay = pygame.Surface((TOTAL_WIDTH, TOTAL_HEIGHT), pygame.SRCALPHA)
+
+        # Horizontal scanlines: a faint dark line every other row.
+        line = (0, 0, 0, 38)
+        for y in range(0, TOTAL_HEIGHT, 2):
+            pygame.draw.line(overlay, line, (0, y), (TOTAL_WIDTH, y))
+
+        # Soft vignette: darken the edges with concentric translucent rects.
+        cx, cy = TOTAL_WIDTH / 2, TOTAL_HEIGHT / 2
+        max_d = math.hypot(cx, cy)
+        steps = 18
+        for i in range(steps):
+            t = i / steps
+            inset = int(t * min(cx, cy))
+            alpha = int(46 * (1.0 - t))
+            if alpha <= 0:
+                continue
+            rect = pygame.Rect(inset, inset,
+                               TOTAL_WIDTH - inset * 2, TOTAL_HEIGHT - inset * 2)
+            pygame.draw.rect(overlay, (0, 0, 0, alpha), rect, width=2,
+                             border_radius=0)
+        return overlay
 
     def reset(self):
         # For backward compatibility with terminal redrawing triggers
@@ -303,6 +362,9 @@ class Renderer:
         # Draw shop modal if requested
         if show_shop:
             self._draw_shop_overlay(player, show_shop)
+
+        # CRT scanline + vignette overlay (drawn last, over everything)
+        self._screen.blit(self._crt_overlay, (0, 0))
 
         pygame.display.flip()
 
@@ -732,6 +794,14 @@ class Renderer:
         return ox, oy
 
     def _draw_monster_sprite(self, rect: pygame.Rect, name: str, color: tuple[int, int, int]):
+        # Animated pixel-art sprite if we generated one for this monster.
+        sheet = self._monster_sprites.get(name.replace(" ", "_"))
+        if sheet is not None:
+            frame = (self._frame_count // 22) % 2  # slow idle wobble
+            src = pygame.Rect(frame * TILE_SIZE, 0, TILE_SIZE, TILE_SIZE)
+            self._screen.blit(sheet, rect.topleft, src)
+            return
+
         if name == "rat":
             # Rat body ellipse
             body_rect = pygame.Rect(rect.centerx - 7, rect.centery - 3, 14, 7)
@@ -964,24 +1034,29 @@ class Renderer:
         if player and hasattr(player, "char_class"):
             char_class = player.char_class
 
-        # Draw animated spritesheet if loaded (for Knight class only)
-        if char_class == "Knight" and self._spritesheet and player:
+        # Draw animated pixel-art spritesheet for any class we have art for.
+        sheet = self._player_sheets.get(char_class.lower())
+        if sheet and player:
             dir_rows = {"DOWN": 0, "UP": 1, "LEFT": 2, "RIGHT": 3}
             row = dir_rows.get(player.facing, 0)
-            
-            # Check if moving to advance walk frame
+
+            # Is the player visually mid-step?
             is_moving = False
             if player in self._entity_positions:
                 vx, vy = self._entity_positions[player]
                 tx, ty = player.x * TILE_SIZE, player.y * TILE_SIZE
                 is_moving = (math.hypot(tx - vx, ty - vy) > 0.5)
-                
-            frame_idx = 0
-            if is_moving:
-                frame_idx = (self._frame_count // 6) % 4
-                
+
+            attacking = player in self._bumps
+            if is_moving or attacking:
+                # Full walk cycle while moving / lunging.
+                frame_idx = (self._frame_count // 5) % 4
+            else:
+                # Idle "breathing" bob: alternate the two stand poses slowly.
+                frame_idx = 0 if (self._frame_count // 26) % 2 == 0 else 2
+
             src_rect = pygame.Rect(frame_idx * 32, row * 32, 32, 32)
-            self._screen.blit(self._spritesheet, rect.topleft, src_rect)
+            self._screen.blit(sheet, rect.topleft, src_rect)
             return
 
         # Fallback vector sprites for classes
@@ -1588,9 +1663,11 @@ class Renderer:
         exit_surf = self._ui_font.render("Press Q to Quit", True, color_rgb(Color.GRAY))
         self._screen.blit(exit_surf, ((TOTAL_WIDTH - exit_surf.get_width()) // 2, 640))
 
+        self._screen.blit(self._crt_overlay, (0, 0))
         pygame.display.flip()
 
     def render_class_select(self, selected_class_idx: int):
+        self._frame_count += 1  # advance so the hero previews animate
         self._screen.fill((10, 10, 14))
 
         # Background sparkles
@@ -1682,62 +1759,20 @@ class Renderer:
             wpn_surf = self._ui_font.render(data["weapon"], True, color_rgb(Color.CYAN))
             self._screen.blit(wpn_surf, (card_x + (card_w - wpn_surf.get_width()) // 2, card_y + 75))
 
-            # Vector illustrations in center
+            # Animated pixel-art hero preview (same sprite used in-game),
+            # scaled up 4x with nearest-neighbor so it stays crisp & chunky.
             icon_center_x = card_x + card_w // 2
             icon_center_y = card_y + 160
-            
-            if data["name"] == "KNIGHT":
-                # Knight visual
-                # Plate body
-                pygame.draw.rect(self._screen, (130, 130, 140), (icon_center_x - 14, icon_center_y - 2, 28, 22), border_radius=4)
-                # Helmet
-                pygame.draw.circle(self._screen, (170, 170, 180), (icon_center_x, icon_center_y - 12), 12)
-                # Visor slot
-                pygame.draw.rect(self._screen, (35, 35, 40), (icon_center_x - 8, icon_center_y - 14, 16, 3))
-                # Red plume
-                pygame.draw.circle(self._screen, (220, 40, 40), (icon_center_x, icon_center_y - 28), 5)
-                # Wooden shield
-                pygame.draw.polygon(self._screen, (139, 69, 19), [
-                    (icon_center_x - 24, icon_center_y + 4),
-                    (icon_center_x - 14, icon_center_y + 4),
-                    (icon_center_x - 19, icon_center_y + 18)
-                ])
-                pygame.draw.polygon(self._screen, (235, 180, 25), [
-                    (icon_center_x - 24, icon_center_y + 4),
-                    (icon_center_x - 14, icon_center_y + 4),
-                    (icon_center_x - 19, icon_center_y + 18)
-                ], width=1)
-                
-            elif data["name"] == "WIZARD":
-                # Wizard visual
-                # Purple cloak
-                pygame.draw.circle(self._screen, (100, 45, 175), (icon_center_x, icon_center_y), 15)
-                # Gold emblem
-                pygame.draw.circle(self._screen, (245, 205, 35), (icon_center_x, icon_center_y + 3), 3)
-                # Conical Hat
-                hat_points = [
-                    (icon_center_x, icon_center_y - 36),
-                    (icon_center_x - 13, icon_center_y - 6),
-                    (icon_center_x + 13, icon_center_y - 6)
-                ]
-                pygame.draw.polygon(self._screen, (25, 45, 120), hat_points)
-                # Yellow brim
-                pygame.draw.line(self._screen, (245, 205, 35), (icon_center_x - 16, icon_center_y - 6), (icon_center_x + 16, icon_center_y - 6), 3)
-                
-            elif data["name"] == "ROGUE":
-                # Rogue visual
-                # Cloak forest green
-                pygame.draw.circle(self._screen, (34, 110, 56), (icon_center_x, icon_center_y), 14)
-                # Dark hood
-                pygame.draw.circle(self._screen, (45, 55, 50), (icon_center_x, icon_center_y - 6), 10)
-                # Face shadow
-                pygame.draw.circle(self._screen, (20, 22, 20), (icon_center_x, icon_center_y - 6), 7)
-                # Glinting blue eyes
-                pygame.draw.circle(self._screen, (180, 220, 255), (icon_center_x - 3, icon_center_y - 7), 1.5)
-                pygame.draw.circle(self._screen, (180, 220, 255), (icon_center_x + 3, icon_center_y - 7), 1.5)
-                # Dagger (steel blade, brown hilt)
-                pygame.draw.line(self._screen, (200, 200, 205), (icon_center_x + 10, icon_center_y + 2), (icon_center_x + 20, icon_center_y - 8), 3)
-                pygame.draw.line(self._screen, (120, 80, 40), (icon_center_x + 8, icon_center_y + 4), (icon_center_x + 11, icon_center_y + 1), 3)
+
+            sheet = self._player_sheets.get(data["name"].lower())
+            if sheet:
+                # Cycle the DOWN-facing walk frames so the preview struts.
+                frame = (self._frame_count // 8) % 4
+                src = pygame.Rect(frame * 32, 0, 32, 32)
+                icon = pygame.Surface((32, 32), pygame.SRCALPHA)
+                icon.blit(sheet, (0, 0), src)
+                icon = pygame.transform.scale(icon, (128, 128))  # 4x, nearest
+                self._screen.blit(icon, (icon_center_x - 64, icon_center_y - 64))
 
             # Descriptions stacked vertically
             desc_y = card_y + 230
@@ -1758,6 +1793,7 @@ class Renderer:
         esc_surf = self._ui_font.render("Press ESC to return to Title Screen", True, color_rgb(Color.GRAY))
         self._screen.blit(esc_surf, ((TOTAL_WIDTH - esc_surf.get_width()) // 2, 600))
 
+        self._screen.blit(self._crt_overlay, (0, 0))
         pygame.display.flip()
 
     def render_game_over(self, player: Player, highscores: list):
@@ -1795,4 +1831,5 @@ class Renderer:
         exit_surf = self._header_font.render("Press ANY KEY to Return to Title Screen", True, color_rgb(Color.YELLOW))
         self._screen.blit(exit_surf, ((TOTAL_WIDTH - exit_surf.get_width()) // 2, 620))
 
+        self._screen.blit(self._crt_overlay, (0, 0))
         pygame.display.flip()
