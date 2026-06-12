@@ -32,7 +32,7 @@ class Renderer:
             pygame.font.init()
 
         self._screen = pygame.display.set_mode((TOTAL_WIDTH, TOTAL_HEIGHT))
-        pygame.display.set_caption("Rogue PyGame - Wizard's Quest")
+        pygame.display.set_caption("ROGUE PYGAME // ATARI DUNGEON 1983")
 
         # Fonts
         self._init_fonts()
@@ -56,16 +56,19 @@ class Renderer:
         # Load animated spritesheet
         self._spritesheet = None
         try:
-            self._spritesheet = pygame.image.load("assets/knight_spritesheet.png").convert_alpha()
+            self._spritesheet = pygame.image.load("assets/knight_atari_spritesheet.png").convert_alpha()
         except Exception:
-            pass
+            try:
+                self._spritesheet = pygame.image.load("assets/knight_spritesheet.png").convert_alpha()
+            except Exception:
+                pass
 
 
     def _init_fonts(self):
-        # Try to find a premium looking font, fallback to standard system fonts
+        # Prefer crisp retro fonts for an 8-bit arcade look.
         self._ui_font = None
         font_name = None
-        for name in ["outfit", "inter", "segoe ui", "helvetica", "arial", "courier"]:
+        for name in ["pressstart2p", "arcadeclassic", "pixelmix", "couriernew", "courier", "monaco"]:
             try:
                 self._ui_font = pygame.font.SysFont(name, 18)
                 if self._ui_font:
@@ -77,9 +80,9 @@ class Renderer:
             self._ui_font = pygame.font.SysFont(None, 18)
 
         # Bold headers
-        self._header_font = pygame.font.SysFont(font_name, 22, bold=True)
+        self._header_font = pygame.font.SysFont(font_name, 20, bold=True)
         # Title font
-        self._title_font = pygame.font.SysFont(font_name, 48, bold=True)
+        self._title_font = pygame.font.SysFont(font_name, 44, bold=True)
         # Log font - monospaced is nice, fallback to UI font
         self._log_font = None
         try:
@@ -253,7 +256,7 @@ class Renderer:
         self.update_animations()
 
         # Background clearing
-        self._screen.fill((12, 12, 16))
+        self._screen.fill((6, 10, 22))
 
         # Calculate screen shake offset
         shake_x = 0
@@ -296,6 +299,9 @@ class Renderer:
         # Render Message Log (No shake)
         self._draw_log(log)
 
+        # Subtle CRT scanline overlay for retro arcade look.
+        self._apply_crt_overlay()
+
         # Draw inventory modal if requested
         if show_inventory:
             self._draw_inventory_overlay(player)
@@ -305,6 +311,17 @@ class Renderer:
             self._draw_shop_overlay(player, show_shop)
 
         pygame.display.flip()
+
+    def _apply_crt_overlay(self):
+        scanline = pygame.Surface((TOTAL_WIDTH, TOTAL_HEIGHT), pygame.SRCALPHA)
+        for y in range(0, TOTAL_HEIGHT, 3):
+            pygame.draw.line(scanline, (8, 12, 20, 28), (0, y), (TOTAL_WIDTH, y), 1)
+        self._screen.blit(scanline, (0, 0))
+
+        if self._frame_count % 60 < 2:
+            flicker = pygame.Surface((TOTAL_WIDTH, TOTAL_HEIGHT), pygame.SRCALPHA)
+            flicker.fill((30, 35, 55, 18))
+            self._screen.blit(flicker, (0, 0))
 
     def _draw_map(self, level: DungeonLevel, shake_x: int, shake_y: int):
         w = min(MAP_WIDTH, level.width)
@@ -485,62 +502,59 @@ class Renderer:
         pygame.draw.ellipse(self._screen, rock_color, (rect.left + 3, rect.top + 3, rect.width - 6, rect.height - 6), width=2)
 
     def _draw_brick_wall(self, rect: pygame.Rect, color: tuple[int, int, int]):
-        pygame.draw.rect(self._screen, color, rect)
-        
-        # Highlight and shadow borders for 3D bevel look
-        hl = tuple(min(255, c + 35) for c in color)
-        sd = tuple(max(0, c - 30) for c in color)
-        pygame.draw.line(self._screen, hl, rect.topleft, rect.topright)
-        pygame.draw.line(self._screen, hl, rect.topleft, rect.bottomleft)
-        pygame.draw.line(self._screen, sd, rect.bottomleft, rect.bottomright)
-        pygame.draw.line(self._screen, sd, rect.topright, rect.bottomright)
+        base = (32, 68, 116)
+        dark = (20, 42, 74)
+        light = (52, 96, 150)
+        pygame.draw.rect(self._screen, base, rect)
+        pygame.draw.rect(self._screen, dark, (rect.left, rect.top, rect.width, 4))
+        pygame.draw.rect(self._screen, dark, (rect.left, rect.top, 4, rect.height))
+        pygame.draw.rect(self._screen, light, (rect.left, rect.bottom - 4, rect.width, 4))
+        pygame.draw.rect(self._screen, light, (rect.right - 4, rect.top, 4, rect.height))
 
-        # Mortar bricks
-        mortar = tuple(max(0, c - 20) for c in color)
-        pygame.draw.line(self._screen, mortar, (rect.left, rect.top + 16), (rect.right, rect.top + 16))
-        pygame.draw.line(self._screen, mortar, (rect.left + 16, rect.top), (rect.left + 16, rect.top + 16))
-        pygame.draw.line(self._screen, mortar, (rect.left + 8, rect.top + 16), (rect.left + 8, rect.bottom))
+        mortar = (16, 28, 44)
+        pygame.draw.line(self._screen, mortar, (rect.left, rect.top + 12), (rect.right, rect.top + 12), 2)
+        pygame.draw.line(self._screen, mortar, (rect.left + 12, rect.top), (rect.left + 12, rect.top + 12), 2)
+        pygame.draw.line(self._screen, mortar, (rect.left + 6, rect.top + 12), (rect.left + 6, rect.bottom), 2)
 
     def _draw_floor(self, rect: pygame.Rect, color: tuple[int, int, int], visible: bool):
-        pygame.draw.rect(self._screen, color, rect)
-        
-        # Draw neat dot patterns representing floor gravel
-        dot_color = (80, 70, 60) if visible else (45, 45, 50)
-        pygame.draw.circle(self._screen, dot_color, (rect.centerx - 6, rect.centery), 1)
-        pygame.draw.circle(self._screen, dot_color, (rect.centerx + 6, rect.centery), 1)
+        base = (22, 24, 42) if visible else (12, 14, 28)
+        stripe = (30, 34, 58) if visible else (18, 20, 36)
+        spark = (42, 48, 74) if visible else (20, 24, 40)
+        pygame.draw.rect(self._screen, base, rect)
+        pygame.draw.rect(self._screen, stripe, (rect.left, rect.top + 8, rect.width, 2))
+        pygame.draw.rect(self._screen, stripe, (rect.left, rect.top + 18, rect.width, 2))
+        pygame.draw.rect(self._screen, spark, (rect.left + 7, rect.top + 6, 2, 2))
+        pygame.draw.rect(self._screen, spark, (rect.right - 9, rect.top + 20, 2, 2))
 
     def _draw_stairs_down(self, rect: pygame.Rect, color: tuple[int, int, int]):
-        # Series of step bars leading down
-        for i in range(3):
-            y = rect.top + 9 + i * 5
-            x_left = rect.left + 6 + i * 4
-            x_right = rect.right - 6 - i * 4
-            pygame.draw.line(self._screen, color, (x_left, y), (x_right, y), 3)
+        step = (236, 184, 54)
+        shadow = (142, 92, 25)
+        for i in range(4):
+            y = rect.top + 6 + i * 6
+            x_left = rect.left + 4 + i * 3
+            x_right = rect.right - 4 - i * 3
+            pygame.draw.line(self._screen, step, (x_left, y), (x_right, y), 2)
+            pygame.draw.line(self._screen, shadow, (x_left, y + 2), (x_right, y + 2), 1)
 
     def _draw_stairs_up(self, rect: pygame.Rect, color: tuple[int, int, int]):
-        # Series of step bars leading up
-        for i in range(3):
-            y = rect.bottom - 9 - i * 5
-            x_left = rect.left + 6 + i * 4
-            x_right = rect.right - 6 - i * 4
-            pygame.draw.line(self._screen, color, (x_left, y), (x_right, y), 3)
+        step = (192, 214, 246)
+        shadow = (98, 130, 165)
+        for i in range(4):
+            y = rect.bottom - 6 - i * 6
+            x_left = rect.left + 4 + i * 3
+            x_right = rect.right - 4 - i * 3
+            pygame.draw.line(self._screen, step, (x_left, y), (x_right, y), 2)
+            pygame.draw.line(self._screen, shadow, (x_left, y + 2), (x_right, y + 2), 1)
 
     def _draw_fountain(self, rect: pygame.Rect, visible: bool):
-        pedestal_c = (90, 90, 95) if visible else (50, 50, 55)
-        basin_c = (110, 110, 115) if visible else (65, 65, 70)
-        water_c = (40, 140, 220) if visible else (25, 60, 95)
+        stone = (96, 96, 120) if visible else (52, 52, 70)
+        water = (68, 182, 255) if visible else (26, 76, 125)
+        glow = (180, 230, 255) if visible else (70, 120, 170)
 
-        # Fountain Pedestal Base
-        base_rect = pygame.Rect(rect.left + 6, rect.bottom - 10, 20, 7)
-        pygame.draw.rect(self._screen, pedestal_c, base_rect, border_radius=1)
-
-        # Basin cup
-        basin_rect = pygame.Rect(rect.left + 3, rect.bottom - 18, 26, 9)
-        pygame.draw.rect(self._screen, basin_c, basin_rect, border_radius=3)
-
-        # Water surface inside basin
-        water_rect = pygame.Rect(rect.left + 5, rect.bottom - 16, 22, 4)
-        pygame.draw.rect(self._screen, water_c, water_rect)
+        pygame.draw.rect(self._screen, stone, (rect.left + 6, rect.bottom - 10, 20, 8))
+        pygame.draw.rect(self._screen, stone, (rect.left + 4, rect.bottom - 18, 24, 6))
+        pygame.draw.rect(self._screen, water, (rect.left + 7, rect.bottom - 16, 18, 4))
+        pygame.draw.rect(self._screen, glow, (rect.left + 10, rect.bottom - 15, 12, 1))
 
     def _draw_items(self, level: DungeonLevel, shake_x: int, shake_y: int):
         for ie in level.items:
@@ -569,65 +583,45 @@ class Renderer:
                 pygame.draw.circle(self._screen, color, rect.center, 6)
 
     def _draw_key(self, rect: pygame.Rect):
-        # Golden Key drawing
-        # Head ring
-        pygame.draw.circle(self._screen, (235, 180, 25), (rect.centerx - 4, rect.centery), 4, 1)
-        # Shaft
-        pygame.draw.line(self._screen, (235, 180, 25), (rect.centerx, rect.centery), (rect.centerx + 8, rect.centery), 2)
-        # Teeth
-        pygame.draw.line(self._screen, (235, 180, 25), (rect.centerx + 5, rect.centery), (rect.centerx + 5, rect.centery + 3), 2)
-        pygame.draw.line(self._screen, (235, 180, 25), (rect.centerx + 7, rect.centery), (rect.centerx + 7, rect.centery + 3), 2)
+        gold = (236, 184, 54)
+        dark = (126, 92, 34)
+        pygame.draw.rect(self._screen, gold, (rect.centerx - 7, rect.centery - 3, 5, 5), 1)
+        pygame.draw.rect(self._screen, gold, (rect.centerx - 2, rect.centery - 1, 11, 2))
+        pygame.draw.rect(self._screen, gold, (rect.centerx + 5, rect.centery + 1, 2, 3))
+        pygame.draw.rect(self._screen, gold, (rect.centerx + 8, rect.centery + 1, 2, 3))
+        pygame.draw.rect(self._screen, dark, (rect.centerx - 2, rect.centery + 1, 11, 1))
 
     def _draw_coin(self, rect: pygame.Rect):
-        # Shiny Gold Coin drawing
-        # Outer ring
-        pygame.draw.circle(self._screen, (240, 195, 30), rect.center, 7)
-        # Inner detail circle
-        pygame.draw.circle(self._screen, (255, 230, 80), (rect.centerx - 1, rect.centery - 1), 4)
-        # Darker border
-        pygame.draw.circle(self._screen, (185, 140, 10), rect.center, 7, 1)
+        gold = (236, 184, 54)
+        light = (255, 232, 132)
+        dark = (136, 96, 22)
+        pygame.draw.rect(self._screen, dark, (rect.centerx - 7, rect.centery - 7, 14, 14))
+        pygame.draw.rect(self._screen, gold, (rect.centerx - 6, rect.centery - 6, 12, 12))
+        pygame.draw.rect(self._screen, light, (rect.centerx - 3, rect.centery - 4, 6, 3))
 
     def _draw_potion(self, rect: pygame.Rect, color: tuple[int, int, int]):
-        # Flask neck
-        pygame.draw.rect(self._screen, (180, 180, 185), (rect.centerx - 2, rect.top + 6, 4, 7))
-        # Flask cork
-        pygame.draw.rect(self._screen, (120, 80, 40), (rect.centerx - 2, rect.top + 3, 4, 3))
-        # Flask circular body
-        pygame.draw.circle(self._screen, (190, 190, 195), (rect.centerx, rect.bottom - 10), 8, 2)
-        # Red liquid fill
-        pygame.draw.circle(self._screen, color, (rect.centerx, rect.bottom - 10), 6)
-        # Shine spot
-        pygame.draw.circle(self._screen, (255, 255, 255), (rect.centerx - 2, rect.bottom - 12), 2)
+        glass = (196, 214, 240)
+        cork = (140, 92, 44)
+        px = rect.left + 8
+        py = rect.top + 6
+        pygame.draw.rect(self._screen, cork, (px + 4, py, 8, 3))
+        pygame.draw.rect(self._screen, glass, (px + 5, py + 3, 6, 3))
+        pygame.draw.rect(self._screen, glass, (px + 2, py + 6, 12, 10), 1)
+        pygame.draw.rect(self._screen, color, (px + 3, py + 11, 10, 4))
+        pygame.draw.rect(self._screen, (255, 255, 255), (px + 4, py + 8, 2, 3))
 
     def _draw_weapon(self, rect: pygame.Rect, color: tuple[int, int, int], name: str = ""):
         if name == "bow":
             self._draw_bow(rect, color)
             return
 
-        # Diagonal sword vector lines
-        start = (rect.left + 6, rect.bottom - 6)
-        end = (rect.right - 6, rect.top + 6)
-        
-        # Blade steel
-        pygame.draw.line(self._screen, (210, 210, 215), start, end, 3)
-
-        # Crossguard and handle
-        dx, dy = end[0] - start[0], end[1] - start[1]
-        length = math.hypot(dx, dy)
-        if length > 0:
-            mid_x = start[0] + dx * 0.25
-            mid_y = start[1] + dy * 0.25
-            px = -dy / length
-            py = dx / length
-            
-            # Draw crossguard perpendicular to blade
-            guard_start = (mid_x - px * 5, mid_y - py * 5)
-            guard_end = (mid_x + px * 5, mid_y + py * 5)
-            pygame.draw.line(self._screen, color, guard_start, guard_end, 2)
-
-            # Draw brown wood hilt
-            hilt_end = (start[0] + dx * 0.08, start[1] + dy * 0.08)
-            pygame.draw.line(self._screen, (110, 75, 40), start, hilt_end, 3)
+        blade = (216, 224, 238)
+        hilt = (126, 88, 44)
+        guard = (236, 184, 54)
+        pygame.draw.rect(self._screen, blade, (rect.centerx + 1, rect.top + 6, 2, 16))
+        pygame.draw.rect(self._screen, blade, (rect.centerx, rect.top + 8, 4, 12))
+        pygame.draw.rect(self._screen, guard, (rect.centerx - 4, rect.top + 20, 10, 2))
+        pygame.draw.rect(self._screen, hilt, (rect.centerx, rect.top + 22, 3, 5))
 
     def _draw_bow(self, rect: pygame.Rect, color: tuple[int, int, int]):
         # Curved wooden bow curve points bent toward top-right
@@ -651,26 +645,22 @@ class Renderer:
         pygame.draw.line(self._screen, (220, 220, 225), start_pt, end_pt, 1)
 
     def _draw_arrows_item(self, rect: pygame.Rect):
-        # Draw 2 crossed arrows on the floor
-        # Shaft 1
-        pygame.draw.line(self._screen, (139, 90, 43), (rect.left + 8, rect.bottom - 8), (rect.right - 8, rect.top + 8), 2)
-        # Shaft 2
-        pygame.draw.line(self._screen, (139, 90, 43), (rect.left + 8, rect.top + 8), (rect.right - 8, rect.bottom - 8), 2)
-        # Fletchings (little white flight circles)
-        pygame.draw.circle(self._screen, (240, 240, 245), (rect.left + 8, rect.bottom - 8), 2)
-        pygame.draw.circle(self._screen, (240, 240, 245), (rect.left + 8, rect.top + 8), 2)
-        # Arrow heads
-        pygame.draw.polygon(self._screen, (200, 200, 210), [(rect.right - 8, rect.top + 8), (rect.right - 12, rect.top + 6), (rect.right - 6, rect.top + 12)])
-        pygame.draw.polygon(self._screen, (200, 200, 210), [(rect.right - 8, rect.bottom - 8), (rect.right - 12, rect.bottom - 6), (rect.right - 6, rect.bottom - 12)])
+        wood = (126, 88, 44)
+        steel = (202, 212, 232)
+        white = (236, 240, 248)
+        pygame.draw.rect(self._screen, wood, (rect.left + 8, rect.top + 7, 2, 16))
+        pygame.draw.rect(self._screen, wood, (rect.left + 14, rect.top + 7, 2, 16))
+        pygame.draw.rect(self._screen, steel, (rect.left + 8, rect.top + 5, 2, 2))
+        pygame.draw.rect(self._screen, steel, (rect.left + 14, rect.top + 5, 2, 2))
+        pygame.draw.rect(self._screen, white, (rect.left + 7, rect.bottom - 6, 4, 2))
+        pygame.draw.rect(self._screen, white, (rect.left + 13, rect.bottom - 6, 4, 2))
 
     def _draw_wand(self, rect: pygame.Rect, color: tuple[int, int, int]):
-        start = (rect.left + 7, rect.bottom - 7)
-        end = (rect.right - 7, rect.top + 7)
-        # Wooden shaft
-        pygame.draw.line(self._screen, (100, 70, 40), start, end, 3)
-        # Spark tip
-        pygame.draw.circle(self._screen, color, end, 4)
-        pygame.draw.circle(self._screen, (255, 255, 255), end, 2)
+        wood = (126, 88, 44)
+        sparkle = (255, 255, 255)
+        pygame.draw.rect(self._screen, wood, (rect.centerx - 1, rect.top + 8, 3, 15))
+        pygame.draw.rect(self._screen, color, (rect.centerx - 3, rect.top + 5, 7, 3))
+        pygame.draw.rect(self._screen, sparkle, (rect.centerx - 1, rect.top + 6, 3, 1))
 
     def _draw_entities(self, level: DungeonLevel, player: Player, shake_x: int, shake_y: int):
         # Render Monsters
@@ -732,58 +722,53 @@ class Renderer:
         return ox, oy
 
     def _draw_monster_sprite(self, rect: pygame.Rect, name: str, color: tuple[int, int, int]):
+        bob = int(math.sin(self._frame_count * 0.25 + rect.x * 0.03 + rect.y * 0.03) * 1.5)
+        eye_on = (self._frame_count % 24) < 20
+        x0 = rect.left + 4
+        y0 = rect.top + 4 + bob
+        px = 2
+
         if name == "rat":
-            # Rat body ellipse
-            body_rect = pygame.Rect(rect.centerx - 7, rect.centery - 3, 14, 7)
-            pygame.draw.ellipse(self._screen, color, body_rect)
-            # Head circle
-            pygame.draw.circle(self._screen, color, (rect.centerx + 6, rect.centery - 1), 3.5)
-            # Pink tail line
-            pygame.draw.line(self._screen, (220, 160, 160), (rect.centerx - 7, rect.centery), (rect.centerx - 13, rect.centery + 3))
+            pygame.draw.rect(self._screen, (128, 132, 145), (x0 + 2, y0 + 8, 16, 8))
+            pygame.draw.rect(self._screen, (156, 162, 174), (x0 + 14, y0 + 8, 6, 6))
+            pygame.draw.rect(self._screen, (232, 164, 164), (x0, y0 + 12, 4, 2))
+            if eye_on:
+                pygame.draw.rect(self._screen, (255, 70, 70), (x0 + 16, y0 + 10, 2, 2))
         elif name == "goblin":
-            # Head
-            pygame.draw.circle(self._screen, color, rect.center, 8)
-            # Ears
-            pygame.draw.polygon(self._screen, color, [(rect.centerx - 8, rect.centery), (rect.centerx - 12, rect.centery - 5), (rect.centerx - 5, rect.centery - 3)])
-            pygame.draw.polygon(self._screen, color, [(rect.centerx + 8, rect.centery), (rect.centerx + 12, rect.centery - 5), (rect.centerx + 5, rect.centery - 3)])
-            # Red eyes
-            pygame.draw.circle(self._screen, (230, 40, 40), (rect.centerx - 3, rect.centery - 1.5), 1)
-            pygame.draw.circle(self._screen, (230, 40, 40), (rect.centerx + 3, rect.centery - 1.5), 1)
+            pygame.draw.rect(self._screen, (84, 158, 76), (x0 + 4, y0 + 4, 12, 12))
+            pygame.draw.rect(self._screen, (74, 136, 68), (x0 + 2, y0 + 8, 2, 4))
+            pygame.draw.rect(self._screen, (74, 136, 68), (x0 + 16, y0 + 8, 2, 4))
+            if eye_on:
+                pygame.draw.rect(self._screen, (255, 58, 58), (x0 + 7, y0 + 8, 2, 2))
+                pygame.draw.rect(self._screen, (255, 58, 58), (x0 + 11, y0 + 8, 2, 2))
         elif name == "orc":
-            # Head
-            pygame.draw.circle(self._screen, color, rect.center, 10)
-            # Tusks (White pixels)
-            pygame.draw.polygon(self._screen, (245, 245, 245), [(rect.centerx - 5, rect.centery + 3), (rect.centerx - 7, rect.centery - 1), (rect.centerx - 3, rect.centery + 1)])
-            pygame.draw.polygon(self._screen, (245, 245, 245), [(rect.centerx + 5, rect.centery + 3), (rect.centerx + 7, rect.centery - 1), (rect.centerx + 3, rect.centery + 1)])
-            # Yellow eyes
-            pygame.draw.circle(self._screen, (250, 230, 20), (rect.centerx - 3.5, rect.centery - 1.5), 1.5)
-            pygame.draw.circle(self._screen, (250, 230, 20), (rect.centerx + 3.5, rect.centery - 1.5), 1.5)
+            pygame.draw.rect(self._screen, (64, 120, 60), (x0 + 2, y0 + 4, 16, 14))
+            if eye_on:
+                pygame.draw.rect(self._screen, (255, 232, 88), (x0 + 6, y0 + 8, 2, 2))
+                pygame.draw.rect(self._screen, (255, 232, 88), (x0 + 12, y0 + 8, 2, 2))
+            pygame.draw.rect(self._screen, (248, 246, 240), (x0 + 5, y0 + 13, 3, 2))
+            pygame.draw.rect(self._screen, (248, 246, 240), (x0 + 12, y0 + 13, 3, 2))
         elif name == "troll":
-            # Large rectangular troll block
-            troll_rect = pygame.Rect(rect.centerx - 11, rect.centery - 11, 22, 22)
-            pygame.draw.rect(self._screen, color, troll_rect, border_radius=4)
-            # Yellow eyes
-            pygame.draw.circle(self._screen, (255, 255, 255), (rect.centerx - 4, rect.centery - 4), 2)
-            pygame.draw.circle(self._screen, (255, 255, 255), (rect.centerx + 4, rect.centery - 4), 2)
-            # Wooden club
-            pygame.draw.line(self._screen, (120, 80, 40), (rect.centerx + 7, rect.centery + 5), (rect.centerx + 13, rect.centery - 5), 4)
+            pygame.draw.rect(self._screen, (130, 56, 168), (x0 + 1, y0 + 2, 18, 18))
+            if eye_on:
+                pygame.draw.rect(self._screen, (255, 255, 255), (x0 + 5, y0 + 8, 2, 2))
+                pygame.draw.rect(self._screen, (255, 255, 255), (x0 + 13, y0 + 8, 2, 2))
+            pygame.draw.rect(self._screen, (130, 86, 44), (x0 + 16, y0 + 10, 4, 8))
         elif name == "wraith":
-            # Translucent ghost polygon representation
             ghost_surface = pygame.Surface((32, 32), pygame.SRCALPHA)
-            pygame.draw.circle(ghost_surface, color + (160,), (16, 12), 8)
-            pygame.draw.polygon(ghost_surface, color + (160,), [(8, 12), (24, 12), (16, 28)])
-            # Eyes (glow white)
-            pygame.draw.circle(ghost_surface, (255, 255, 255, 250), (13, 11), 2)
-            pygame.draw.circle(ghost_surface, (255, 255, 255, 250), (19, 11), 2)
+            pygame.draw.rect(ghost_surface, (128, 210, 248, 170), (9, 7 + bob, 14, 14))
+            pygame.draw.polygon(ghost_surface, (128, 210, 248, 170), [(9, 20 + bob), (23, 20 + bob), (16, 27 + bob)])
+            if eye_on:
+                pygame.draw.rect(ghost_surface, (255, 255, 255, 235), (13, 11 + bob, 2, 2))
+                pygame.draw.rect(ghost_surface, (255, 255, 255, 235), (17, 11 + bob, 2, 2))
             self._screen.blit(ghost_surface, rect.topleft)
         elif name == "dread knight":
-            # Armored skull
-            pygame.draw.circle(self._screen, (35, 35, 40), rect.center, 11)
-            # Helmet visor and burning red eyes
-            pygame.draw.rect(self._screen, (240, 30, 30), (rect.centerx - 7, rect.centery - 3, 14, 3))
-            # Horn spikes
-            pygame.draw.polygon(self._screen, (75, 75, 80), [(rect.centerx - 7, rect.top + 7), (rect.centerx - 11, rect.top + 2), (rect.centerx - 4, rect.top + 8)])
-            pygame.draw.polygon(self._screen, (75, 75, 80), [(rect.centerx + 7, rect.top + 7), (rect.centerx + 11, rect.top + 2), (rect.centerx + 4, rect.top + 8)])
+            pygame.draw.rect(self._screen, (48, 48, 58), (x0 + 2, y0 + 2, 16, 16))
+            pygame.draw.rect(self._screen, (90, 90, 106), (x0 + 6, y0, 8, 2))
+            eye = (255, 36, 36) if eye_on else (150, 30, 30)
+            pygame.draw.rect(self._screen, eye, (x0 + 6, y0 + 8, 8, 2))
+            pygame.draw.rect(self._screen, (90, 90, 106), (x0 + 1, y0 + 2, 2, 5))
+            pygame.draw.rect(self._screen, (90, 90, 106), (x0 + 17, y0 + 2, 2, 5))
         elif name == "merchant":
             # 1. Cloak and robes
             pygame.draw.rect(self._screen, (90, 60, 35), (rect.centerx - 6, rect.top + 12, 12, 15), border_radius=2)
@@ -976,7 +961,7 @@ class Renderer:
                 tx, ty = player.x * TILE_SIZE, player.y * TILE_SIZE
                 is_moving = (math.hypot(tx - vx, ty - vy) > 0.5)
                 
-            frame_idx = 0
+            frame_idx = 4 if (self._frame_count // 20) % 2 == 0 else 5
             if is_moving:
                 frame_idx = (self._frame_count // 6) % 4
                 
@@ -984,76 +969,107 @@ class Renderer:
             self._screen.blit(self._spritesheet, rect.topleft, src_rect)
             return
 
+        moving = False
+        if player and player in self._entity_positions:
+            vx, vy = self._entity_positions[player]
+            tx, ty = player.x * TILE_SIZE, player.y * TILE_SIZE
+            moving = (math.hypot(tx - vx, ty - vy) > 0.5)
+        step = (self._frame_count // 7) % 2
+        bob = -1 if moving and step == 0 else 0
+
         # Fallback vector sprites for classes
         if char_class == "Knight":
             # 1. Legs and steel boots
-            pygame.draw.rect(self._screen, (110, 110, 115), (rect.centerx - 4, rect.centery + 8, 3, 5)) # Left leg
-            pygame.draw.rect(self._screen, (110, 110, 115), (rect.centerx + 1, rect.centery + 8, 3, 5)) # Right leg
-            pygame.draw.rect(self._screen, (50, 50, 50), (rect.centerx - 5, rect.centery + 12, 4, 3), border_radius=1) # Left boot
-            pygame.draw.rect(self._screen, (50, 50, 50), (rect.centerx + 1, rect.centery + 12, 4, 3), border_radius=1) # Right boot
+            left_leg_y = rect.centery + 8 + (1 if step == 0 else 0)
+            right_leg_y = rect.centery + 8 + (0 if step == 0 else 1)
+            pygame.draw.rect(self._screen, (110, 110, 115), (rect.centerx - 4, left_leg_y + bob, 3, 5)) # Left leg
+            pygame.draw.rect(self._screen, (110, 110, 115), (rect.centerx + 1, right_leg_y + bob, 3, 5)) # Right leg
+            pygame.draw.rect(self._screen, (50, 50, 50), (rect.centerx - 5, left_leg_y + 4 + bob, 4, 3), border_radius=1) # Left boot
+            pygame.draw.rect(self._screen, (50, 50, 50), (rect.centerx + 1, right_leg_y + 4 + bob, 4, 3), border_radius=1) # Right boot
             # 2. Chestplate
-            pygame.draw.rect(self._screen, (130, 130, 140), (rect.centerx - 7, rect.centery - 2, 14, 11), border_radius=2)
+            pygame.draw.rect(self._screen, (130, 130, 140), (rect.centerx - 7, rect.centery - 2 + bob, 14, 11), border_radius=2)
             # 3. Helmet & plume
-            pygame.draw.circle(self._screen, (170, 170, 180), (rect.centerx, rect.centery - 6), 6)
-            pygame.draw.rect(self._screen, (35, 35, 40), (rect.centerx - 4, rect.centery - 7, 8, 2)) # Visor slot
-            pygame.draw.circle(self._screen, (220, 40, 40), (rect.centerx, rect.top + 5), 2) # Red plume
+            pygame.draw.circle(self._screen, (170, 170, 180), (rect.centerx, rect.centery - 6 + bob), 6)
+            pygame.draw.rect(self._screen, (35, 35, 40), (rect.centerx - 4, rect.centery - 7 + bob, 8, 2)) # Visor slot
+            pygame.draw.circle(self._screen, (220, 40, 40), (rect.centerx, rect.top + 5 + bob), 2) # Red plume
             # 4. Shield (on left arm)
             pygame.draw.polygon(self._screen, (139, 69, 19), [
-                (rect.centerx - 11, rect.centery + 1),
-                (rect.centerx - 6, rect.centery + 1),
-                (rect.centerx - 8, rect.centery + 8)
+                (rect.centerx - 11, rect.centery + 1 + bob),
+                (rect.centerx - 6, rect.centery + 1 + bob),
+                (rect.centerx - 8, rect.centery + 8 + bob)
             ])
             pygame.draw.polygon(self._screen, (235, 180, 25), [
-                (rect.centerx - 11, rect.centery + 1),
-                (rect.centerx - 6, rect.centery + 1),
-                (rect.centerx - 8, rect.centery + 8)
+                (rect.centerx - 11, rect.centery + 1 + bob),
+                (rect.centerx - 6, rect.centery + 1 + bob),
+                (rect.centerx - 8, rect.centery + 8 + bob)
             ], width=1)
             # 5. Sword in right arm
-            pygame.draw.line(self._screen, (130, 130, 140), (rect.centerx + 6, rect.centery + 2), (rect.centerx + 9, rect.centery + 5), 2) # arm
-            pygame.draw.line(self._screen, (210, 215, 220), (rect.centerx + 9, rect.centery + 5), (rect.centerx + 13, rect.centery - 4), 2) # Blade
-            pygame.draw.line(self._screen, (245, 205, 35), (rect.centerx + 7, rect.centery + 6), (rect.centerx + 11, rect.centery + 3), 2) # Guard
+            swing = int(math.sin(self._frame_count * 0.35) * 2) if moving else 0
+            pygame.draw.line(self._screen, (130, 130, 140), (rect.centerx + 6, rect.centery + 2 + bob), (rect.centerx + 9, rect.centery + 5 + bob), 2) # arm
+            pygame.draw.line(self._screen, (210, 215, 220), (rect.centerx + 9, rect.centery + 5 + bob), (rect.centerx + 13 + swing, rect.centery - 4 + bob), 2) # Blade
+            pygame.draw.line(self._screen, (245, 205, 35), (rect.centerx + 7, rect.centery + 6 + bob), (rect.centerx + 11, rect.centery + 3 + bob), 2) # Guard
         elif char_class == "Rogue":
             # Green Rogue drawing
             # 1. Legs and boots
-            pygame.draw.rect(self._screen, (40, 45, 42), (rect.centerx - 4, rect.centery + 8, 3, 5)) # Left leg
-            pygame.draw.rect(self._screen, (40, 45, 42), (rect.centerx + 1, rect.centery + 8, 3, 5)) # Right leg
-            pygame.draw.rect(self._screen, (60, 45, 30), (rect.centerx - 5, rect.centery + 12, 4, 3), border_radius=1) # Left shoe
-            pygame.draw.rect(self._screen, (60, 45, 30), (rect.centerx + 1, rect.centery + 12, 4, 3), border_radius=1) # Right shoe
+            left_leg_y = rect.centery + 8 + (1 if step == 0 else 0)
+            right_leg_y = rect.centery + 8 + (0 if step == 0 else 1)
+            pygame.draw.rect(self._screen, (40, 45, 42), (rect.centerx - 4, left_leg_y + bob, 3, 5)) # Left leg
+            pygame.draw.rect(self._screen, (40, 45, 42), (rect.centerx + 1, right_leg_y + bob, 3, 5)) # Right leg
+            pygame.draw.rect(self._screen, (60, 45, 30), (rect.centerx - 5, left_leg_y + 4 + bob, 4, 3), border_radius=1) # Left shoe
+            pygame.draw.rect(self._screen, (60, 45, 30), (rect.centerx + 1, right_leg_y + 4 + bob, 4, 3), border_radius=1) # Right shoe
             # 2. Cloak forest green
-            pygame.draw.circle(self._screen, (34, 110, 56), rect.center, 8)
+            sway = int(math.sin(self._frame_count * 0.35) * 1.5)
+            pygame.draw.circle(self._screen, (34, 110, 56), (rect.centerx + sway, rect.centery + bob), 8)
             # 3. Dark cowl/hood
-            pygame.draw.circle(self._screen, (45, 55, 50), (rect.centerx, rect.centery - 4), 6)
+            pygame.draw.circle(self._screen, (45, 55, 50), (rect.centerx, rect.centery - 4 + bob), 6)
             # Shadowy mask inside cowl
-            pygame.draw.circle(self._screen, (20, 22, 20), (rect.centerx, rect.centery - 4), 4)
+            pygame.draw.circle(self._screen, (20, 22, 20), (rect.centerx, rect.centery - 4 + bob), 4)
             # Glinting eyes
-            pygame.draw.circle(self._screen, (180, 220, 255), (rect.centerx - 1, rect.centery - 5), 1)
-            pygame.draw.circle(self._screen, (180, 220, 255), (rect.centerx + 1, rect.centery - 5), 1)
+            if self._frame_count % 30 < 26:
+                pygame.draw.circle(self._screen, (180, 220, 255), (rect.centerx - 1, rect.centery - 5 + bob), 1)
+                pygame.draw.circle(self._screen, (180, 220, 255), (rect.centerx + 1, rect.centery - 5 + bob), 1)
             # 4. Steel dagger in hand
-            pygame.draw.line(self._screen, (200, 200, 205), (rect.centerx + 5, rect.centery), (rect.centerx + 10, rect.centery - 5), 2)
-            pygame.draw.line(self._screen, (120, 80, 40), (rect.centerx + 4, rect.centery + 1), (rect.centerx + 6, rect.centery - 1), 2)
+            dagger_swing = int(math.sin(self._frame_count * 0.5) * 3) if moving else 0
+            pygame.draw.line(self._screen, (200, 200, 205), (rect.centerx + 5, rect.centery + bob), (rect.centerx + 10 + dagger_swing, rect.centery - 5 + bob), 2)
+            pygame.draw.line(self._screen, (120, 80, 40), (rect.centerx + 4, rect.centery + 1 + bob), (rect.centerx + 6, rect.centery - 1 + bob), 2)
         else:
-            # Wizard Cloak (deep purple)
+            # Wizard Cloak (blue arcade palette)
             # 1. Robe down to legs
-            pygame.draw.rect(self._screen, (100, 45, 175), (rect.centerx - 6, rect.centery - 2, 12, 14), border_radius=2)
-            pygame.draw.rect(self._screen, (90, 60, 35), (rect.centerx - 5, rect.centery + 11, 4, 3), border_radius=1) # Left shoe
-            pygame.draw.rect(self._screen, (90, 60, 35), (rect.centerx + 1, rect.centery + 11, 4, 3), border_radius=1) # Right shoe
-            pygame.draw.circle(self._screen, (245, 205, 35), (rect.centerx, rect.centery + 2), 2) # Gold emblem
+            robe_shift = int(math.sin(self._frame_count * 0.25) * 1.5)
+            pygame.draw.rect(self._screen, (48, 92, 212), (rect.centerx - 6 + robe_shift, rect.centery - 2 + bob, 12, 14), border_radius=2)
+            pygame.draw.rect(self._screen, (90, 60, 35), (rect.centerx - 5, rect.centery + 11 + bob, 4, 3), border_radius=1) # Left shoe
+            pygame.draw.rect(self._screen, (90, 60, 35), (rect.centerx + 1, rect.centery + 11 + bob, 4, 3), border_radius=1) # Right shoe
+            pygame.draw.circle(self._screen, (245, 205, 35), (rect.centerx, rect.centery + 2 + bob), 2) # Gold emblem
             # 2. Face peeking out from under hat
-            pygame.draw.circle(self._screen, (240, 200, 160), (rect.centerx, rect.centery - 5), 5)
+            pygame.draw.circle(self._screen, (240, 200, 160), (rect.centerx, rect.centery - 5 + bob), 5)
             # Glowing wizard eyes (white/light-blue)
-            pygame.draw.circle(self._screen, (150, 220, 255), (rect.centerx - 1.5, rect.centery - 5), 1)
-            pygame.draw.circle(self._screen, (150, 220, 255), (rect.centerx + 1.5, rect.centery - 5), 1)
+            if self._frame_count % 36 < 32:
+                pygame.draw.circle(self._screen, (150, 220, 255), (rect.centerx - 1.5, rect.centery - 5 + bob), 1)
+                pygame.draw.circle(self._screen, (150, 220, 255), (rect.centerx + 1.5, rect.centery - 5 + bob), 1)
             # 3. Conical Wizard Hat
             hat_points = [
-                (rect.centerx, rect.top + 3),
-                (rect.centerx - 8, rect.centery - 4),
-                (rect.centerx + 8, rect.centery - 4)
+                (rect.centerx, rect.top + 3 + bob),
+                (rect.centerx - 8, rect.centery - 4 + bob),
+                (rect.centerx + 8, rect.centery - 4 + bob)
             ]
-            pygame.draw.polygon(self._screen, (70, 30, 130), hat_points)
-            pygame.draw.ellipse(self._screen, (245, 205, 35), (rect.centerx - 9, rect.centery - 6, 18, 4)) # Gold brim
+            pygame.draw.polygon(self._screen, (20, 44, 132), hat_points)
+            pygame.draw.ellipse(self._screen, (245, 205, 35), (rect.centerx - 9, rect.centery - 6 + bob, 18, 4)) # Gold brim
             # 4. Staff in hand
-            pygame.draw.line(self._screen, (120, 75, 35), (rect.centerx - 8, rect.centery + 11), (rect.centerx - 8, rect.centery - 4), 2)
-            pygame.draw.circle(self._screen, (0, 200, 255), (rect.centerx - 8, rect.centery - 4), 3)
+            pygame.draw.line(self._screen, (120, 75, 35), (rect.centerx - 8, rect.centery + 11 + bob), (rect.centerx - 8, rect.centery - 4 + bob), 2)
+            orb_color = (0, 200 + int(abs(math.sin(self._frame_count * 0.2)) * 40), 255)
+            pygame.draw.circle(self._screen, orb_color, (rect.centerx - 8, rect.centery - 4 + bob), 3)
+
+    def _draw_pixel_sprite(self, rect: pygame.Rect, sprite: list[str], palette: dict[str, tuple[int, int, int]], scale: int = 2):
+        origin_x = rect.left + (rect.width - len(sprite[0]) * scale) // 2
+        origin_y = rect.top + (rect.height - len(sprite) * scale) // 2
+        for y, row in enumerate(sprite):
+            for x, key in enumerate(row):
+                if key == ".":
+                    continue
+                color = palette.get(key)
+                if color is None:
+                    continue
+                pygame.draw.rect(self._screen, color, (origin_x + x * scale, origin_y + y * scale, scale, scale))
 
     def _draw_projectiles(self, shake_x: int, shake_y: int):
         for proj in self._projectiles:
@@ -1251,8 +1267,8 @@ class Renderer:
         sx = MAP_PIXEL_WIDTH
         
         # Sidebar Panel Divider / Panel Background
-        pygame.draw.rect(self._screen, (20, 20, 26), (sx, 0, SIDEBAR_WIDTH, TOTAL_HEIGHT))
-        pygame.draw.line(self._screen, (40, 40, 50), (sx, 0), (sx, TOTAL_HEIGHT), 2)
+        pygame.draw.rect(self._screen, (10, 18, 36), (sx, 0, SIDEBAR_WIDTH, TOTAL_HEIGHT))
+        pygame.draw.line(self._screen, (68, 126, 236), (sx, 0), (sx, TOTAL_HEIGHT), 2)
 
         # Header Status
         self._draw_text(sx + 20, 20, "-- STATUS --", color_rgb(Color.YELLOW), font=self._header_font)
@@ -1331,8 +1347,8 @@ class Renderer:
         y_top = MAP_PIXEL_HEIGHT
         
         # Message log border separator
-        pygame.draw.rect(self._screen, (10, 10, 14), (0, y_top, MAP_PIXEL_WIDTH, LOG_HEIGHT))
-        pygame.draw.line(self._screen, (40, 40, 50), (0, y_top), (MAP_PIXEL_WIDTH, y_top), 2)
+        pygame.draw.rect(self._screen, (8, 12, 28), (0, y_top, MAP_PIXEL_WIDTH, LOG_HEIGHT))
+        pygame.draw.line(self._screen, (68, 126, 236), (0, y_top), (MAP_PIXEL_WIDTH, y_top), 2)
         
         # Render rolling text messages
         row = 0
@@ -1543,20 +1559,23 @@ class Renderer:
             self._screen.blit(price_surf, (slot_x + slot_w - price_surf.get_width() - 20, slot_y + (slot_h - price_surf.get_height()) // 2))
 
     def render_title_screen(self, highscores):
-        self._screen.fill((10, 10, 14))
+        self._screen.fill((6, 10, 22))
 
-        # Draw procedural background sparkles
-        for _ in range(30):
+        # Draw procedural starfield bands.
+        for _ in range(50):
             x = random.randint(10, TOTAL_WIDTH - 10)
             y = random.randint(10, TOTAL_HEIGHT - 10)
-            size = random.choice([1, 2])
-            pygame.draw.circle(self._screen, (60, 60, 80), (x, y), size)
+            c = random.choice([(48, 84, 160), (80, 150, 246), (236, 184, 54)])
+            self._screen.fill(c, (x, y, 2, 2))
+
+        for y in range(0, TOTAL_HEIGHT, 20):
+            pygame.draw.line(self._screen, (10, 16, 34), (0, y), (TOTAL_WIDTH, y), 1)
 
         # Big Title Logo
-        t_surf = self._title_font.render("WIZARD'S DUNGEON", True, color_rgb(Color.YELLOW))
+        t_surf = self._title_font.render("PIXEL QUEST 1984", True, (236, 184, 54))
         self._screen.blit(t_surf, ((TOTAL_WIDTH - t_surf.get_width()) // 2, 80))
         
-        st_surf = self._header_font.render("A Graphical Pygame Roguelike Quest", True, color_rgb(Color.CYAN))
+        st_surf = self._header_font.render("RETRO ARCADE DUNGEON CRAWL", True, (92, 174, 255))
         self._screen.blit(st_surf, ((TOTAL_WIDTH - st_surf.get_width()) // 2, 140))
 
         # Draw a line divider
@@ -1577,11 +1596,11 @@ class Renderer:
                 curr_y += 26
 
         # Prompts at bottom
-        p_surf = self._header_font.render("Press ENTER to Begin the Quest", True, color_rgb(Color.GREEN))
+        p_surf = self._header_font.render("PRESS ENTER TO START", True, color_rgb(Color.GREEN))
         # Add pulsing bounce effect
         pulse = abs(math.sin(pygame.time.get_ticks() * 0.004))
         pulse_color = (int(46 + (209 - 46) * pulse), int(196 + (255 - 196) * pulse), int(120 + (240 - 120) * pulse))
-        p_surf = self._header_font.render("Press ENTER to Begin the Quest", True, pulse_color)
+        p_surf = self._header_font.render("PRESS ENTER TO START", True, pulse_color)
         
         self._screen.blit(p_surf, ((TOTAL_WIDTH - p_surf.get_width()) // 2, 600))
         
@@ -1591,17 +1610,19 @@ class Renderer:
         pygame.display.flip()
 
     def render_class_select(self, selected_class_idx: int):
-        self._screen.fill((10, 10, 14))
+        self._screen.fill((6, 10, 22))
 
         # Background sparkles
-        for _ in range(30):
+        for _ in range(48):
             x = random.randint(10, TOTAL_WIDTH - 10)
             y = random.randint(10, TOTAL_HEIGHT - 10)
-            size = random.choice([1, 2])
-            pygame.draw.circle(self._screen, (60, 60, 80), (x, y), size)
+            self._screen.fill(random.choice([(56, 106, 192), (86, 176, 255), (236, 184, 54)]), (x, y, 2, 2))
+
+        for y in range(0, TOTAL_HEIGHT, 20):
+            pygame.draw.line(self._screen, (10, 16, 34), (0, y), (TOTAL_WIDTH, y), 1)
 
         # Main Title Header
-        title_surf = self._title_font.render("SELECT YOUR HERO CLASS", True, color_rgb(Color.YELLOW))
+        title_surf = self._title_font.render("SELECT YOUR HERO CLASS", True, (236, 184, 54))
         self._screen.blit(title_surf, ((TOTAL_WIDTH - title_surf.get_width()) // 2, 70))
 
         # 3 Class Cards Setup
@@ -1660,12 +1681,12 @@ class Renderer:
             
             # Select background and border colors
             if selected:
-                bg_color = (36, 30, 26)
+                bg_color = (24, 28, 52)
                 border_color = (255, 215, 0)
                 border_width = 3
             else:
-                bg_color = (18, 18, 22)
-                border_color = (60, 60, 65)
+                bg_color = (14, 16, 30)
+                border_color = (60, 88, 140)
                 border_width = 1
 
             pygame.draw.rect(self._screen, bg_color, card_rect, border_radius=8)
@@ -1761,7 +1782,12 @@ class Renderer:
         pygame.display.flip()
 
     def render_game_over(self, player: Player, highscores: list):
-        self._screen.fill((15, 10, 10))
+        self._screen.fill((22, 8, 10))
+
+        for _ in range(55):
+            x = random.randint(8, TOTAL_WIDTH - 8)
+            y = random.randint(8, TOTAL_HEIGHT - 8)
+            self._screen.fill(random.choice([(94, 18, 18), (178, 34, 34), (236, 184, 54)]), (x, y, 2, 2))
 
         # Title
         go_surf = self._title_font.render("GAME OVER", True, color_rgb(Color.RED))
