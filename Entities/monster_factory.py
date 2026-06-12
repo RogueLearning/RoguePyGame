@@ -29,12 +29,26 @@ def _make(name: str, glyph: str, color: Color, hp: int, atk: int) -> Monster:
     return m
 
 
+def _make_dragon() -> Monster:
+    m = Monster()
+    m.name = "dragon"
+    m.glyph = "🐉"
+    m.color = Color.RED
+    m.hp = 35
+    m.max_hp = 35
+    m.attack = 8
+    m.fire_cooldown = 0
+    return m
+
+
 def create(x: int, y: int, depth: int, rng: random.Random) -> Monster:
     pool = [(6, lambda: _make("rat", "🐀", Color.DARK_GRAY, 4, 2))]
     if depth >= 2:
         pool.append((5, lambda: _make("goblin", "👺", Color.GREEN, 8, 3)))
     if depth >= 3:
         pool.append((4, lambda: _make("orc", "👹", Color.DARK_GREEN, 14, 5)))
+    if depth >= 4:
+        pool.append((2, _make_dragon))
     if depth >= 5:
         pool.append((3, lambda: _make("troll", "🧌", Color.MAGENTA, 24, 7)))
     if depth >= 7:

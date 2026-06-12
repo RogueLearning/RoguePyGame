@@ -52,21 +52,37 @@ def create(x: int, y: int, depth: int, rng: random.Random) -> ItemEntity:
     ie = ItemEntity(x=x, y=y)
     if depth >= 2 and rng.randrange(100) < 15:
         item = Item()
-        item.name = "wand of lightning"
-        item.glyph = "🪄"
-        item.color = Color.CYAN  # Cyan color fits lightning perfectly!
-        item.kind = ItemKind.WAND
-        item.wand_damage = 8 + depth // 3
-        item.wand_range = 6
-        item.charges = 3 + rng.randrange(3)
+        if rng.randrange(100) < 50:
+            item.name = "wand of flames"
+            item.glyph = "🪄"
+            item.color = Color.RED
+            item.kind = ItemKind.WAND
+            item.wand_damage = 6 + depth // 3
+            item.wand_range = 6
+            item.charges = 3 + rng.randrange(3)
+        else:
+            item.name = "wand of lightning"
+            item.glyph = "🪄"
+            item.color = Color.CYAN  # Cyan color fits lightning perfectly!
+            item.kind = ItemKind.WAND
+            item.wand_damage = 8 + depth // 3
+            item.wand_range = 6
+            item.charges = 3 + rng.randrange(3)
         ie.item = item
     elif rng.randrange(100) < 15:
         item = Item()
-        item.name = "arrows"
-        item.glyph = "🏹"
-        item.color = Color.GRAY
-        item.kind = ItemKind.ARROW
-        item.charges = rng.randint(5, 12)
+        if depth >= 2 and rng.randrange(100) < 35:
+            item.name = "arrows of flames"
+            item.glyph = "🏹"
+            item.color = Color.RED
+            item.kind = ItemKind.ARROW
+            item.charges = rng.randint(4, 8)
+        else:
+            item.name = "arrows"
+            item.glyph = "🏹"
+            item.color = Color.GRAY
+            item.kind = ItemKind.ARROW
+            item.charges = rng.randint(5, 12)
         ie.item = item
     elif rng.randrange(100) < 55:
         item = Item()
@@ -86,12 +102,19 @@ def create(x: int, y: int, depth: int, rng: random.Random) -> ItemEntity:
             item.kind = ItemKind.WEAPON
             item.attack_bonus = bonus
         else:
-            idx = max(0, min(bonus - 1, len(_WEAPON_NAMES) - 1))
-            item.name = _WEAPON_NAMES[idx]
-            item.glyph = "🗡️"
-            item.color = Color.CYAN
-            item.kind = ItemKind.WEAPON
-            item.attack_bonus = bonus
+            if depth >= 2 and rng.randrange(100) < 30:
+                item.name = "sword of flames"
+                item.glyph = "🗡️"
+                item.color = Color.RED
+                item.kind = ItemKind.WEAPON
+                item.attack_bonus = bonus
+            else:
+                idx = max(0, min(bonus - 1, len(_WEAPON_NAMES) - 1))
+                item.name = _WEAPON_NAMES[idx]
+                item.glyph = "🗡️"
+                item.color = Color.CYAN
+                item.kind = ItemKind.WEAPON
+                item.attack_bonus = bonus
         ie.item = item
     return ie
 

@@ -22,6 +22,7 @@ class DungeonLevel:
         self.stairs_down_crypt: tuple[int, int] = (0, 0)
         self.stairs_down_cellar: tuple[int, int] = (0, 0)
         self.stairs_down_cave: tuple[int, int] = (0, 0)
+        self.burning_tiles: dict[tuple[int, int], int] = {}
 
     def in_bounds(self, x: int, y: int) -> bool:
         return 0 <= x < self.width and 0 <= y < self.height

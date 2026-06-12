@@ -917,6 +917,40 @@ class Renderer:
             
             # Hanging pink tongue
             pygame.draw.ellipse(self._screen, (230, 80, 130), (rect.centerx - 2, rect.centery - 3, 6, 10))
+        elif name == "dragon":
+            # 1. Main body/head shape: large ellipse
+            pygame.draw.ellipse(self._screen, color, pygame.Rect(rect.centerx - 12, rect.centery - 10, 24, 20))
+            # 2. Snout/jaw pointing forward
+            pygame.draw.polygon(self._screen, color, [
+                (rect.centerx - 8, rect.centery + 2),
+                (rect.centerx + 12, rect.centery + 8),
+                (rect.centerx - 4, rect.centery + 10)
+            ])
+            # 3. Horns on the back of the head
+            pygame.draw.polygon(self._screen, (160, 40, 40), [
+                (rect.centerx - 8, rect.centery - 8),
+                (rect.centerx - 14, rect.centery - 15),
+                (rect.centerx - 2, rect.centery - 10)
+            ])
+            pygame.draw.polygon(self._screen, (160, 40, 40), [
+                (rect.centerx - 4, rect.centery - 9),
+                (rect.centerx - 8, rect.centery - 16),
+                (rect.centerx + 2, rect.centery - 10)
+            ])
+            # 4. Glowing yellow eyes
+            pygame.draw.circle(self._screen, (255, 230, 0), (rect.centerx + 2, rect.centery - 2), 2)
+            # 5. Nostril smoke/fire particles (subtle animation!)
+            if self._frame_count % 12 == 0:
+                self._particles.append({
+                    "x": rect.centerx + 8,
+                    "y": rect.centery + 6,
+                    "vx": random.uniform(0.1, 0.4),
+                    "vy": random.uniform(-0.2, 0.2),
+                    "color": (250, 100, 20) if random.random() > 0.5 else (120, 120, 120),
+                    "size": random.uniform(1.5, 3),
+                    "life": random.uniform(0.2, 0.4),
+                    "max_life": 1.0
+                })
         else:
             # Threat marker dot
             pygame.draw.circle(self._screen, color, rect.center, 8)
@@ -1071,7 +1105,7 @@ class Renderer:
                     pygame.draw.lines(self._screen, (100, 200, 255), False, points, 4)
                     # Thin white core
                     pygame.draw.lines(self._screen, (255, 255, 255), False, points, 2)
-            elif ptype == "arrow":
+            elif ptype == "arrow" or ptype == "flame_arrow":
                 # Draw a vector arrow pointing in direction of travel
                 dx = path[-1][0] - path[0][0]
                 dy = path[-1][1] - path[0][1]
@@ -1086,14 +1120,15 @@ class Renderer:
                 
                 # Brown wooden shaft
                 pygame.draw.line(self._screen, (139, 90, 43), (int(bx), int(by)), (int(fx), int(fy)), 2)
-                # Steel triangular arrowhead
+                # Steel/Flame triangular arrowhead
                 tip_len = 4
                 tx1 = fx - math.cos(angle + math.pi/6) * tip_len
                 ty1 = fy - math.sin(angle + math.pi/6) * tip_len
                 tx2 = fx - math.cos(angle - math.pi/6) * tip_len
                 ty2 = fy - math.sin(angle - math.pi/6) * tip_len
-                pygame.draw.polygon(self._screen, (200, 200, 210), [(int(fx), int(fy)), (int(tx1), int(ty1)), (int(tx2), int(ty2))])
-                # White feathers flight fletching
+                tip_color = (255, 69, 0) if ptype == "flame_arrow" else (200, 200, 210)
+                pygame.draw.polygon(self._screen, tip_color, [(int(fx), int(fy)), (int(tx1), int(ty1)), (int(tx2), int(ty2))])
+                # Feathers flight fletching
                 f_angle1 = angle + math.pi * 5/6
                 f_angle2 = angle - math.pi * 5/6
                 f_len = 4
@@ -1101,8 +1136,9 @@ class Renderer:
                 fy1 = by + math.sin(f_angle1) * f_len
                 fx2 = bx + math.cos(f_angle2) * f_len
                 fy2 = by + math.sin(f_angle2) * f_len
-                pygame.draw.line(self._screen, (240, 240, 245), (int(bx), int(by)), (int(fx1), int(fy1)), 2)
-                pygame.draw.line(self._screen, (240, 240, 245), (int(bx), int(by)), (int(fx2), int(fy2)), 2)
+                f_color = (255, 140, 0) if ptype == "flame_arrow" else (240, 240, 245)
+                pygame.draw.line(self._screen, f_color, (int(bx), int(by)), (int(fx1), int(fy1)), 2)
+                pygame.draw.line(self._screen, f_color, (int(bx), int(by)), (int(fx2), int(fy2)), 2)
             else:
                 # Fireball core
                 pygame.draw.circle(self._screen, (255, 230, 40), (int(px), int(py)), 8)
@@ -1255,7 +1291,12 @@ class Renderer:
         # Status text details
         self._draw_text(sx + 20, 136, f"ATK:   {player.attack}", color_rgb(Color.WHITE))
         self._draw_text(sx + 20, 166, f"Kills: {player.kills}", color_rgb(Color.WHITE))
-        self._draw_text(sx + 20, 196, f"Arrows: {getattr(player, 'arrows', 0)}", color_rgb(Color.WHITE))
+        
+        arrows_text = f"Arrows: {getattr(player, 'arrows', 0)}"
+        if getattr(player, "flame_arrows", 0) > 0:
+            arrows_text += f"  (Fire: {player.flame_arrows})"
+        self._draw_text(sx + 20, 196, arrows_text, color_rgb(Color.WHITE))
+        
         self._draw_text(sx + 20, 226, f"Gold:  {player.coins}", (240, 195, 30), font=self._header_font)
         self._draw_text(sx + 20, 256, f"Score: {player.score}", color_rgb(Color.CYAN), font=self._header_font)
 

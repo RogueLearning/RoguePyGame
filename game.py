@@ -112,6 +112,53 @@ class Game:
                     if not self._player.is_alive:
                         self._trigger_game_over()
 
+                # Update fire mechanics (burning tiles and burning statuses)
+                if self._level is not None:
+                    # Update ground fire timers
+                    for pos in list(self._level.burning_tiles.keys()):
+                        self._level.burning_tiles[pos] -= 1
+                        if self._level.burning_tiles[pos] <= 0:
+                            del self._level.burning_tiles[pos]
+
+                    # Standing on a burning tile catches fire
+                    if (self._player.x, self._player.y) in self._level.burning_tiles:
+                        if getattr(self._player, "burning_timer", 0) < 180:
+                            self._player.burning_timer = 180
+                    for m in self._level.monsters:
+                        if m.is_alive and not getattr(m, "is_npc", False):
+                            if (m.x, m.y) in self._level.burning_tiles:
+                                if getattr(m, "burning_timer", 0) < 180:
+                                    m.burning_timer = 180
+
+                    # Ticking damage for burning player
+                    if self._player.is_alive and getattr(self._player, "burning_timer", 0) > 0:
+                        self._player.burning_timer -= 1
+                        if self._player.burning_timer % 30 == 0:
+                            self._player.hp -= 1
+                            self._sound.play("hit")
+                            self._renderer.add_damage_text(self._player.x, self._player.y, "-1 Fire", (255, 80, 0))
+                            self._renderer.add_particles(self._player.x, self._player.y, (255, 100, 0), count=4)
+                            self._log.add("You are burning!", Color.RED)
+                            if not self._player.is_alive:
+                                self._log.add("You burned to death...", Color.RED)
+                                self._trigger_game_over()
+
+                    # Ticking damage for burning monsters
+                    for m in list(self._level.monsters):
+                        if m.is_alive and getattr(m, "burning_timer", 0) > 0:
+                            m.burning_timer -= 1
+                            if m.burning_timer % 30 == 0:
+                                if not getattr(m, "is_npc", False):
+                                    m.hp -= 1
+                                    self._renderer.add_damage_text(m.x, m.y, "-1 Fire", (255, 80, 0))
+                                    self._renderer.add_particles(m.x, m.y, (255, 100, 0), count=4)
+                                    if not m.is_alive:
+                                        self._log.add(f"The {m.name} burns to death!", Color.GREEN)
+                                        self._player.kills += 1
+                                        if m in self._level.monsters:
+                                            self._level.monsters.remove(m)
+                                        self._drop_monster_loot(m)
+
             # 3. Render frame view
             if self._state == GameState.TITLE_SCREEN:
                 self._renderer.render_title_screen(self._highscores)
@@ -617,6 +664,13 @@ class Game:
             self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (220, 55, 55))
             self._renderer.add_particles(m.x, m.y, (180, 50, 50), count=8)
 
+        # Sword of flames burning effect
+        if weapon is not None and weapon.name == "sword of flames":
+            if not getattr(m, "is_npc", False):
+                m.burning_timer = 300  # 5 seconds
+                self._log.add(f"Your sword of flames sets the {m.name} on fire!", Color.RED)
+                self._renderer.add_particles(m.x, m.y, (255, 120, 20), count=6)
+
         if not m.is_alive:
             self._log.add(f"You kill the {m.name}!", Color.GREEN)
             self._player.kills += 1
@@ -688,11 +742,20 @@ class Game:
             self._player.inventory.remove(item)
             self._player.update_appearance()
         elif item.kind == ItemKind.WEAPON:
+            wand = self._player.inventory.equipped_wand
+            if wand is not None:
+                self._player.inventory.equipped_wand = None
+                self._log.add(f"You stow the {wand.display_name}.", Color.GRAY)
             self._player.inventory.equipped_weapon = item
             self._player.update_appearance()
             self._log.add(f"You equip the {item.display_name}.", Color.CYAN)
             self._renderer.add_damage_text(self._player.x, self._player.y, "EQUIP", (45, 175, 205))
         elif item.kind == ItemKind.WAND:
+            weapon = self._player.inventory.equipped_weapon
+            if weapon is not None:
+                self._player.inventory.equipped_weapon = None
+                self._log.add(f"You stow the {weapon.display_name}.", Color.GRAY)
+                self._player.update_appearance()
             self._player.inventory.equipped_wand = item
             self._log.add(f"You ready the {item.display_name}.", Color.MAGENTA)
             self._renderer.add_damage_text(self._player.x, self._player.y, "READY", (200, 60, 200))
@@ -892,7 +955,7 @@ class Game:
         # Check if Bow is equipped and has arrows. If so, shoot!
         weapon = self._player.inventory.equipped_weapon
         if weapon is not None and weapon.name == "bow":
-            if getattr(self._player, "arrows", 0) <= 0:
+            if getattr(self._player, "flame_arrows", 0) <= 0 and getattr(self._player, "arrows", 0) <= 0:
                 self._log.add("You have no arrows left!", Color.DARK_GRAY)
                 return False
             self._fire_arrow(dx, dy)
@@ -930,7 +993,13 @@ class Game:
         return True
 
     def _fire_arrow(self, dx: int, dy: int):
-        self._player.arrows = getattr(self._player, "arrows", 0) - 1
+        is_flame = False
+        if getattr(self._player, "flame_arrows", 0) > 0:
+            is_flame = True
+            self._player.flame_arrows -= 1
+        else:
+            self._player.arrows = getattr(self._player, "arrows", 0) - 1
+
         self._state = GameState.ANIMATING
         self._sound.play("shoot")
 
@@ -972,15 +1041,15 @@ class Game:
                 
                 # Check if there is already an item there
                 existing = self._level.item_at(drop_x, drop_y)
-                if existing is not None and existing.item.kind == ItemKind.ARROW:
+                if existing is not None and existing.item.kind == ItemKind.ARROW and existing.item.name == ("arrows of flames" if is_flame else "arrows"):
                     existing.item.charges += 1
                 elif existing is None:
                     # Spawn new arrow pile containing 1 arrow
                     from Items.item import ItemEntity
                     arrow_item = Item()
-                    arrow_item.name = "arrows"
+                    arrow_item.name = "arrows of flames" if is_flame else "arrows"
                     arrow_item.glyph = "🏹"
-                    arrow_item.color = Color.GRAY
+                    arrow_item.color = Color.RED if is_flame else Color.GRAY
                     arrow_item.kind = ItemKind.ARROW
                     arrow_item.charges = 1
                     self._level.items.append(ItemEntity(drop_x, drop_y, arrow_item))
@@ -1011,6 +1080,12 @@ class Game:
                         self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (220, 55, 55))
                         self._renderer.add_particles(m.x, m.y, (180, 50, 50), count=8)
 
+                    # Flame arrow burning status application!
+                    if is_flame:
+                        m.burning_timer = 300 # 5 seconds
+                        self._log.add(f"Your flame arrow sets the {m.name} on fire!", Color.RED)
+                        self._renderer.add_particles(m.x, m.y, (255, 120, 20), count=6)
+
                 if not m.is_alive:
                     self._log.add(f"You kill the {m.name}!", Color.GREEN)
                     self._player.kills += 1
@@ -1023,11 +1098,15 @@ class Game:
             else:
                 self._trigger_game_over()
 
-        # Launch arrow projectile animation on the renderer (type="arrow")
-        self._renderer.add_projectile(path, on_projectile_complete, type="arrow")
+        # Launch arrow projectile animation on the renderer (type="flame_arrow" or "arrow")
+        self._renderer.add_projectile(path, on_projectile_complete, type="flame_arrow" if is_flame else "arrow")
 
     def _start_lightning(self, dx: int, dy: int):
         wand = self._player.inventory.equipped_wand
+        if wand is not None and wand.name == "wand of flames":
+            self._start_fire_wand(dx, dy)
+            return
+
         if wand is None or wand.charges <= 0:
             self._state = GameState.PLAYING
             return
@@ -1120,6 +1199,102 @@ class Game:
         # Launch the lightning projectile animation on the renderer (type="lightning")
         self._renderer.add_projectile(path, on_projectile_complete, type="lightning")
 
+    def _start_fire_wand(self, dx: int, dy: int):
+        wand = self._player.inventory.equipped_wand
+        if wand is None or wand.charges <= 0:
+            self._state = GameState.PLAYING
+            return
+
+        x, y = self._player.x, self._player.y
+        path = []
+        target_monster = None
+        target_wall = False
+
+        for _ in range(wand.wand_range):
+            x += dx
+            y += dy
+            if not self._level.in_bounds(x, y):
+                break
+            path.append((x, y))
+            if not self._level.tiles[x][y].is_walkable:
+                target_wall = True
+                break
+            m = self._level.monster_at(x, y)
+            if m is not None:
+                target_monster = m
+                break
+
+        if not path:
+            self._log.add("The fire fizzles instantly.", Color.DARK_GRAY)
+            self._state = GameState.PLAYING
+            return
+
+        wand.charges -= 1
+        self._renderer.trigger_flash(alpha=160, color=(255, 120, 40))
+        self._state = GameState.ANIMATING
+        self._sound.play("zap")
+
+        def on_projectile_complete():
+            nonlocal target_monster, target_wall
+            # Set ground on fire along the path
+            for (px, py) in path:
+                if self._level.in_bounds(px, py) and self._level.tiles[px][py].is_walkable:
+                    self._level.burning_tiles[(px, py)] = 600 # 10 seconds
+
+            if target_wall:
+                self._log.add("The fire crackles against the wall.", Color.RED)
+            elif target_monster is not None:
+                m = target_monster
+                if getattr(m, "is_chest", False):
+                    if getattr(m, "is_mimic", False):
+                        m.is_chest = False
+                        m.name = "mimic"
+                        m.hp = 15 + m.depth * 5
+                        m.max_hp = m.hp
+                        m.attack = 3 + m.depth
+                        
+                        dmg = wand.wand_damage + self._rng.randint(-1, 1)
+                        m.hp -= dmg
+                        m.burning_timer = 300
+                        self._log.add(f"The chest reveals itself as a Mimic and takes {dmg} fire damage!", Color.RED)
+                        self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (255, 100, 0))
+                        self._renderer.add_particles(m.x, m.y, (255, 120, 20), count=15)
+                        if not m.is_alive:
+                            self._log.add("The Mimic is burned to ashes!", Color.GREEN)
+                            self._player.kills += 1
+                            if m in self._level.monsters:
+                                self._level.monsters.remove(m)
+                            self._drop_monster_loot(m)
+                    else:
+                        self._log.add("The fire engulfs the chest harmlessly.", Color.DARK_GRAY)
+                        self._renderer.add_particles(m.x, m.y, (255, 120, 20), count=4)
+                else:
+                    if getattr(m, "is_npc", False):
+                        self._log.add(f"The fire washes over {m.name} harmlessly.", Color.DARK_GRAY)
+                    else:
+                        dmg = wand.wand_damage + self._rng.randint(-1, 1)
+                        m.hp -= dmg
+                        m.burning_timer = 300
+                        self._log.add(f"You burn the {m.name} for {dmg}!", Color.RED)
+                        self._renderer.add_damage_text(m.x, m.y, f"-{dmg}", (255, 100, 0))
+                        self._renderer.add_particles(m.x, m.y, (255, 120, 20), count=12)
+
+                        if not m.is_alive:
+                            self._log.add(f"You burn the {m.name} to ashes!", Color.GREEN)
+                            self._player.kills += 1
+                            if m in self._level.monsters:
+                                self._level.monsters.remove(m)
+                            self._drop_monster_loot(m)
+            else:
+                self._log.add("The fire dissipates into the dark.", Color.DARK_GRAY)
+
+            if self._player.is_alive:
+                self._state = GameState.PLAYING
+            else:
+                self._trigger_game_over()
+
+        self._renderer.add_projectile(path, on_projectile_complete, type="fireball")
+
     def _try_ascend(self) -> bool:
         if self._in_overworld:
             self._log.add("You cannot ascend from the overworld.", Color.DARK_GRAY)
@@ -1138,6 +1313,19 @@ class Game:
         self._renderer.trigger_shake(8.0)
         self._renderer.add_particles(self._player.x, self._player.y, (245, 245, 245), count=15)
         return True
+
+    def _get_line_path(self, x1: int, y1: int, x2: int, y2: int) -> list[tuple[int, int]]:
+        path = []
+        dx = x2 - x1
+        dy = y2 - y1
+        steps = max(abs(dx), abs(dy))
+        if steps == 0:
+            return []
+        for i in range(1, steps + 1):
+            x = x1 + round(dx * i / steps)
+            y = y1 + round(dy * i / steps)
+            path.append((x, y))
+        return path
 
     def _monsters_act(self):
         for m in list(self._level.monsters):
@@ -1177,6 +1365,48 @@ class Game:
                     self._log.add(f"The {m.name} kills you...", Color.RED)
                     return
                 continue
+
+            # Dragon Fire Breath AI
+            if m.name == "dragon":
+                if getattr(m, "fire_cooldown", 0) > 0:
+                    m.fire_cooldown -= 1
+                
+                dist = abs(dx) + abs(dy)
+                if 1 < dist <= 6:
+                    if getattr(m, "fire_cooldown", 0) <= 0:
+                        path = self._get_line_path(m.x, m.y, self._player.x, self._player.y)
+                        blocked = False
+                        for px, py in path[:-1]:
+                            if not self._level.tiles[px][py].is_walkable:
+                                blocked = True
+                                break
+                        if not blocked:
+                            m.fire_cooldown = 4
+                            self._state = GameState.ANIMATING
+                            self._sound.play("shoot")
+                            
+                            def on_dragon_fire_complete():
+                                if self._player.x == path[-1][0] and self._player.y == path[-1][1]:
+                                    dmg = max(1, m.attack + self._rng.randint(-1, 1))
+                                    self._player.hp -= dmg
+                                    if getattr(self._player, "burning_timer", 0) < 180:
+                                        self._player.burning_timer = 180
+                                    self._log.add(f"The dragon breathes fire on you for {dmg} damage!", Color.RED)
+                                    self._renderer.add_damage_text(self._player.x, self._player.y, f"-{dmg}", (255, 50, 50))
+                                    self._renderer.add_particles(self._player.x, self._player.y, (255, 100, 0), count=12)
+                                    self._renderer.trigger_shake(6.0)
+                                
+                                for px, py in path:
+                                    if self._level.in_bounds(px, py) and self._level.tiles[px][py].is_walkable:
+                                        self._level.burning_tiles[(px, py)] = 600
+                                        
+                                if self._player.is_alive:
+                                    self._state = GameState.PLAYING
+                                else:
+                                    self._trigger_game_over()
+                                    
+                            self._renderer.add_projectile(path, on_dragon_fire_complete, type="fireball")
+                            continue
 
             sx = (dx > 0) - (dx < 0)
             sy = (dy > 0) - (dy < 0)

@@ -8,3 +8,4 @@ class Entity:
         self.glyph: str = "??"
         self.color: Color = Color.GRAY
         self.name: str = ""
+        self.burning_timer: int = 0
