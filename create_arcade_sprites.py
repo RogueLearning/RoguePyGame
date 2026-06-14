@@ -498,6 +498,167 @@ def make_monster_sheet(name, art):
     pygame.image.save(sheet, f"assets/sprites/{safe}.png")
 
 
+# ==================================================================
+#  NPCs  (town/overworld folk -- animated like the player classes:
+#  authored body + procedural legs + a 4-frame idle loop with a small
+#  per-NPC flourish so they feel alive while standing around)
+# ==================================================================
+
+VILLAGER = [
+    "................",
+    "................",
+    ".....hhhhh......",
+    "....hkkkkkh.....",
+    "....kkkkkkk.....",
+    "....kKkkKkk.....",
+    "....kkkkkkk.....",
+    "....BBBBBBB.....",
+    "...BBBBBBBBB....",
+    "...BBwwwwwBB....",
+    "...BBBBBBBBB....",
+    "...BBBBBBBBB....",
+]
+FARMER = [
+    "................",
+    "...GGGGGGGG.....",
+    "....GGGGGG......",
+    "....kkkkkk......",
+    "....kKkkKk......",
+    "....kkkkkk......",
+    "....RRRRRR......",
+    "...RRBBBBRR.....",
+    "...RBBBBBBR.....",
+    "...RBBBBBBR.....",
+    "...BBBBBBBB.....",
+    "...BBBBBBBB.....",
+]
+DRUID = [
+    "................",
+    ".....nnnnn......",
+    "....nNNNNNn.....",
+    "....nkkkkkn.....",
+    "....nkNkNkn.....",
+    "....kWWWWWk.....",
+    "....WWWWWWW.....",
+    "...NNNNNNNNN....",
+    "..NNNNNNNNNNN...",
+    "..NNNGGGNNNN....",
+    "..NNNNNNNNNN....",
+    "..NNNNNNNNNN....",
+]
+MERCHANT = [
+    "................",
+    ".....wwww.......",
+    "....whhhhw......",
+    "....wKKKKw......",
+    "....wGKKGw......",
+    "....wKKKKw......",
+    "...wwwwwwww.....",
+    "..wwwwwwwwww....",
+    "..wwwGGwwwww....",
+    "..wwwwwwwwww....",
+    "..wwwwwwwwww....",
+    "..wwwwwwwwww....",
+]
+GHOST = [
+    "................",
+    ".....AAAA.......",
+    "....AAAAAA......",
+    "...AAAAAAAA.....",
+    "...AAKAAKAA.....",
+    "...AAAAAAAA.....",
+    "...AAAAAAAA.....",
+    "...AAAAAAAA.....",
+    "...AAAAAAAA.....",
+    "...AaAaAaAa.....",
+    "...a.a.a.a......",
+    "....a.a.a.......",
+]
+
+NPC_ART = {
+    "villager": dict(body=VILLAGER, boot=(80, 50, 30), boot_hi=(120, 78, 46),
+                     fx="wave", float=False),
+    "farmer":   dict(body=FARMER, boot=(90, 60, 30), boot_hi=(132, 92, 48),
+                     fx="wheat", float=False),
+    "druid":    dict(body=DRUID, boot=(60, 45, 25), boot_hi=(96, 72, 40),
+                     fx="staff", float=False),
+    "merchant": dict(body=MERCHANT, boot=(60, 40, 22), boot_hi=(96, 64, 36),
+                     fx="coin", float=False),
+    "ghost_npc": dict(body=GHOST, boot=None, boot_hi=None,
+                      fx="ghost", float=True),
+}
+
+# Idle loop: gentle bob/sway in place instead of a full stride.
+NPC_BOB = [0, -1, -1, 0]
+NPC_FLOAT_BOB = [0, -1, -2, -1]
+
+
+def draw_npc_legs(surf, ox, oy, frame, boot, boot_hi):
+    """Planted feet with a subtle weight shift (one foot lifts per beat)."""
+    base_y = oy + 12 * PIX
+    lo = -1 if frame == 1 else 0
+    ro = -1 if frame == 3 else 0
+
+    def foot(cx, dy):
+        x = ox + cx * PIX
+        y = base_y + dy * PIX
+        surf.fill(boot, (x, y, 2 * PIX, 2 * PIX))
+        surf.fill(boot_hi, (x, y, 2 * PIX, PIX))
+
+    foot(5, lo)
+    foot(9, ro)
+
+
+def draw_npc_fx(surf, fx, frame, ox=0, oy=0):
+    """Per-frame flourish that gives each NPC a bit of arcade life."""
+    if fx == "wave":
+        # Right hand raised on the off-beats -- a friendly wave.
+        raised = frame in (1, 3)
+        hy = 6 if raised else 8
+        surf.fill(PALETTE['B'], (ox + 11 * PIX, oy + 7 * PIX, PIX, PIX))   # arm
+        surf.fill(PALETTE['k'], (ox + 11 * PIX, oy + hy * PIX, PIX, PIX))  # hand
+    elif fx == "wheat":
+        # Wheat stalk that sways side to side.
+        sway = (1 if frame in (1, 2) else 0) * PIX
+        surf.fill(PALETTE['n'], (ox + 12 * PIX + sway, oy + 7 * PIX, PIX, 3 * PIX))
+        surf.fill(PALETTE['G'], (ox + 12 * PIX + sway, oy + 5 * PIX, PIX, 2 * PIX))
+    elif fx == "staff":
+        # Wooden staff with a gem that flickers cyan/white.
+        surf.fill(PALETTE['w'], (ox + 12 * PIX, oy + 5 * PIX, PIX, 8 * PIX))
+        gem = PALETTE['C'] if frame % 2 == 0 else PALETTE['W']
+        surf.fill(gem, (ox + 12 * PIX - (PIX // 1), oy + 4 * PIX, 2 * PIX, PIX))
+        surf.fill(gem, (ox + 12 * PIX, oy + 3 * PIX, PIX, PIX))
+    elif fx == "coin":
+        # Gold coin tossed/bobbing in the merchant's hand.
+        cy = 6 if frame in (1, 2) else 8
+        surf.fill(PALETTE['k'], (ox + 12 * PIX, oy + 9 * PIX, PIX, PIX))  # hand
+        surf.fill(PALETTE['G'], (ox + 12 * PIX, oy + cy * PIX, PIX, PIX))
+        surf.fill(PALETTE['y'], (ox + 12 * PIX, oy + cy * PIX, PIX, PIX // 1))
+    elif fx == "ghost":
+        # Eyes glimmer; the float bob carries the rest of the motion.
+        glow = PALETTE['W'] if frame % 2 == 0 else PALETTE['C']
+        surf.fill(glow, (ox + 5 * PIX, oy + 4 * PIX, PIX, PIX))
+        surf.fill(glow, (ox + 8 * PIX, oy + 4 * PIX, PIX, PIX))
+
+
+def make_npc_sheet(name, art):
+    """4-frame idle loop (128x32) saved to assets/npcs/<name>.png."""
+    sheet = pygame.Surface((CELL * 4, CELL), pygame.SRCALPHA)
+    is_float = art["float"]
+    bobs = NPC_FLOAT_BOB if is_float else NPC_BOB
+    for f in range(4):
+        cell = pygame.Surface((CELL, CELL), pygame.SRCALPHA)
+        bob = bobs[f] * PIX
+        sway = (-1 if f == 1 else (1 if f == 3 else 0)) * (PIX if not is_float else 0)
+        blit_pixmap(cell, art["body"], sway, bob)
+        if not is_float:
+            draw_npc_legs(cell, sway, bob, f, art["boot"], art["boot_hi"])
+        draw_npc_fx(cell, art["fx"], f, sway, bob)
+        sheet.blit(cell, (f * CELL, 0))
+    os.makedirs("assets/npcs", exist_ok=True)
+    pygame.image.save(sheet, f"assets/npcs/{name}.png")
+
+
 def main():
     for name, art in CLASS_ART.items():
         make_player_sheet(name, art)
@@ -505,6 +666,9 @@ def main():
     for name, art in MONSTERS.items():
         make_monster_sheet(name, art)
         print(f"  monster -> assets/sprites/{name.replace(' ', '_')}.png")
+    for name, art in NPC_ART.items():
+        make_npc_sheet(name, art)
+        print(f"  npc     -> assets/npcs/{name}.png")
     print("Arcade sprites generated.")
 
 

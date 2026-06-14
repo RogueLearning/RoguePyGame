@@ -106,6 +106,15 @@ class Renderer:
             except Exception:
                 pass
 
+        # Load animated NPC sprites (128x32: 4-frame idle loop)
+        self._npc_sprites = {}
+        for nname in ("villager", "farmer", "druid", "merchant", "ghost_npc"):
+            try:
+                self._npc_sprites[nname] = pygame.image.load(
+                    f"assets/npcs/{nname}.png").convert_alpha()
+            except Exception:
+                pass
+
         # Pre-build the CRT scanline + vignette overlay for the 8-bit arcade look
         self._crt_overlay = self._build_crt_overlay()
 
@@ -810,6 +819,14 @@ class Renderer:
         return ox, oy
 
     def _draw_monster_sprite(self, rect: pygame.Rect, name: str, color: tuple[int, int, int]):
+        # Animated pixel-art NPC if we generated one (4-frame idle loop).
+        npc_sheet = self._npc_sprites.get(name.replace(" ", "_"))
+        if npc_sheet is not None:
+            frame = (self._frame_count // 11) % 4
+            src = pygame.Rect(frame * TILE_SIZE, 0, TILE_SIZE, TILE_SIZE)
+            self._screen.blit(npc_sheet, rect.topleft, src)
+            return
+
         # Animated pixel-art sprite if we generated one for this monster.
         sheet = self._monster_sprites.get(name.replace(" ", "_"))
         if sheet is not None:
