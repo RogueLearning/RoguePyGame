@@ -33,28 +33,38 @@ ATARI_PURPLE = (92, 66, 166)
 
 
 class RetroFont:
-    """Thin wrapper around pygame.font that forces anti-aliasing OFF, giving
-    text hard 1-bit pixel edges -- the classic arcade-cabinet look. Caches
-    rendered gl-text surfaces since UI strings repeat every frame."""
+    """Renders text the way an 80s DOS machine would: a fixed-width font drawn
+    at a small base size with anti-aliasing OFF (so each glyph is just a pixel
+    grid), then blown up by an integer factor with nearest-neighbor scaling so
+    every pixel becomes a fat square block. Results are cached since UI strings
+    repeat every frame."""
 
-    def __init__(self, name, size, bold=False):
+    def __init__(self, name, base_size, scale=2, bold=False):
         try:
-            self._font = pygame.font.SysFont(name, size, bold=bold)
+            self._font = pygame.font.SysFont(name, base_size, bold=bold)
         except Exception:
-            self._font = pygame.font.SysFont(None, size, bold=bold)
+            self._font = pygame.font.SysFont(None, base_size, bold=bold)
+        self._scale = scale
         self._cache = {}
 
     def render(self, text, _aa, color):
         key = (text, tuple(color))
         surf = self._cache.get(key)
         if surf is None:
-            surf = self._font.render(text, False, color)  # antialias OFF
+            base = self._font.render(text, False, color)  # antialias OFF
+            if self._scale != 1 and base.get_width() > 0 and base.get_height() > 0:
+                surf = pygame.transform.scale(
+                    base, (base.get_width() * self._scale,
+                           base.get_height() * self._scale))  # nearest -> chunky
+            else:
+                surf = base
             if len(self._cache) < 512:
                 self._cache[key] = surf
         return surf
 
     def size(self, text):
-        return self._font.size(text)
+        w, h = self._font.size(text)
+        return (w * self._scale, h * self._scale)
 
 
 class Renderer:
@@ -120,23 +130,27 @@ class Renderer:
 
 
     def _init_fonts(self):
-        # 8-bit arcade look: fixed-width font, anti-aliasing forced OFF so the
-        # glyphs stay crisp and blocky like an old cabinet.
+        # 80s DOS look: a fixed-width font rendered small (no anti-aliasing)
+        # and upscaled into chunky pixel blocks. PT Mono / Andale Mono read
+        # cleanest when blown up; fall back through other monospaces.
         mono = None
-        for name in ["pressstart2p", "press start 2p", "monaco", "menlo",
-                     "consolas", "courier new", "courier", "monospace"]:
+        for name in ["ptmono", "pt mono", "andalemono", "andale mono",
+                     "couriernew", "courier new", "monaco", "menlo",
+                     "consolas", "courier", "monospace"]:
             try:
-                f = pygame.font.SysFont(name, 16)
+                f = pygame.font.SysFont(name, 11)
                 if f:
                     mono = name
                     break
             except Exception:
                 pass
 
-        self._ui_font = RetroFont(mono, 16)
-        self._header_font = RetroFont(mono, 18, bold=True)
-        self._title_font = RetroFont(mono, 40, bold=True)
-        self._log_font = RetroFont(mono, 15)
+        # base_size x scale = effective height. Larger than before for
+        # readability, with 2-3px blocks for that DOS-on-a-CRT feel.
+        self._ui_font = RetroFont(mono, 10, scale=2)               # ~24px
+        self._header_font = RetroFont(mono, 11, scale=2, bold=True)  # ~28px
+        self._title_font = RetroFont(mono, 16, scale=3, bold=True)   # ~63px
+        self._log_font = RetroFont(mono, 10, scale=2)              # ~24px
 
 
     def _build_crt_overlay(self):
@@ -827,12 +841,22 @@ class Renderer:
             self._screen.blit(npc_sheet, rect.topleft, src)
             return
 
-        # Animated pixel-art sprite if we generated one for this monster.
+        # Animated pixel-art sprite if we generated one for this monster
+        # (4-frame idle loop with per-monster motion + flourish).
         sheet = self._monster_sprites.get(name.replace(" ", "_"))
         if sheet is not None:
-            frame = (self._frame_count // 22) % 2  # slow idle wobble
+            frame = (self._frame_count // 12) % 4
             src = pygame.Rect(frame * TILE_SIZE, 0, TILE_SIZE, TILE_SIZE)
             self._screen.blit(sheet, rect.topleft, src)
+            # Live drifting nostril smoke for the dragon (sprite can't drift).
+            if name == "dragon" and self._frame_count % 12 == 0:
+                self._particles.append({
+                    "x": rect.centerx + 8, "y": rect.centery + 6,
+                    "vx": random.uniform(0.1, 0.4), "vy": random.uniform(-0.2, 0.2),
+                    "color": (250, 100, 20) if random.random() > 0.5 else (120, 120, 120),
+                    "size": random.uniform(1.5, 3),
+                    "life": random.uniform(0.2, 0.4), "max_life": 1.0,
+                })
             return
 
         if name == "rat":
@@ -1374,83 +1398,81 @@ class Renderer:
 
     def _draw_sidebar(self, player: Player):
         sx = MAP_PIXEL_WIDTH
-        
+        tx = sx + 20  # left text margin
+
         # Sidebar Panel Divider / Panel Background
         pygame.draw.rect(self._screen, ATARI_PANEL, (sx, 0, SIDEBAR_WIDTH, TOTAL_HEIGHT))
         pygame.draw.line(self._screen, ATARI_PANEL_BORDER, (sx, 0), (sx, TOTAL_HEIGHT), 2)
 
-        # Header Status
-        self._draw_text(sx + 20, 20, "-- STATUS --", color_rgb(Color.YELLOW), font=self._header_font)
-        self._draw_text(sx + 20, 48, f"Class: {getattr(player, 'char_class', 'Wizard')}", color_rgb(Color.CYAN), font=self._header_font)
-        depth_str = "Overworld" if player.depth == 0 else str(player.depth)
-        self._draw_text(sx + 20, 76, f"Depth: {depth_str} (max {player.max_depth})", color_rgb(Color.WHITE))
+        LH = 30  # line height tuned for the larger DOS font
+        y = 18
 
-        # HP bar
-        self._draw_text(sx + 20, 106, "HP: ", color_rgb(Color.WHITE))
+        # Header Status
+        self._draw_text(tx, y, "-- STATUS --", color_rgb(Color.YELLOW), font=self._header_font); y += LH + 4
+        self._draw_text(tx, y, f"Class: {getattr(player, 'char_class', 'Wizard')}", color_rgb(Color.CYAN), font=self._header_font); y += LH
+        depth_str = "Overworld" if player.depth == 0 else f"{player.depth} (max {player.max_depth})"
+        self._draw_text(tx, y, f"Depth: {depth_str}", color_rgb(Color.WHITE)); y += LH
+
+        # HP bar (taller to fit the larger numerals)
+        self._draw_text(tx, y, "HP:", color_rgb(Color.WHITE))
         hp_ratio = player.hp / player.max_hp
-        bar_w = 180
-        bar_h = 16
-        bx = sx + 60
-        by = 106
-        
-        # Border box
+        bar_w, bar_h = 200, 26
+        bx, by = sx + 70, y - 2
+
         pygame.draw.rect(self._screen, (45, 45, 50), (bx, by, bar_w, bar_h), border_radius=3)
-        
-        # Fill ratio color
         if hp_ratio <= 0.33:
             fill_c = color_rgb(Color.RED)
         elif hp_ratio <= 0.66:
             fill_c = color_rgb(Color.YELLOW)
         else:
             fill_c = color_rgb(Color.GREEN)
-            
         if player.hp > 0:
             fill_w = max(4, int(bar_w * hp_ratio))
             pygame.draw.rect(self._screen, fill_c, (bx, by, fill_w, bar_h), border_radius=3)
-            
-        # Numerical HP values on top of bar
+
         txt_hp = f"{player.hp}/{player.max_hp}"
         hp_surf = self._ui_font.render(txt_hp, True, (255, 255, 255))
-        self._screen.blit(hp_surf, (bx + (bar_w - hp_surf.get_width()) // 2, by - 1))
+        self._screen.blit(hp_surf, (bx + (bar_w - hp_surf.get_width()) // 2,
+                                    by + (bar_h - hp_surf.get_height()) // 2))
+        y += LH + 4
 
         # Status text details
-        self._draw_text(sx + 20, 136, f"ATK:   {player.attack}", color_rgb(Color.WHITE))
-        self._draw_text(sx + 20, 166, f"Kills: {player.kills}", color_rgb(Color.WHITE))
-        
+        self._draw_text(tx, y, f"ATK:   {player.attack}", color_rgb(Color.WHITE)); y += LH
+        self._draw_text(tx, y, f"Kills: {player.kills}", color_rgb(Color.WHITE)); y += LH
+
         arrows_text = f"Arrows: {getattr(player, 'arrows', 0)}"
         if getattr(player, "flame_arrows", 0) > 0:
-            arrows_text += f"  (Fire: {player.flame_arrows})"
-        self._draw_text(sx + 20, 196, arrows_text, color_rgb(Color.WHITE))
-        
-        self._draw_text(sx + 20, 226, f"Gold:  {player.coins}", (240, 195, 30), font=self._header_font)
-        self._draw_text(sx + 20, 256, f"Score: {player.score}", color_rgb(Color.CYAN), font=self._header_font)
+            arrows_text += f" (Fire {player.flame_arrows})"
+        self._draw_text(tx, y, arrows_text, color_rgb(Color.WHITE)); y += LH
 
-        # Keyboard Controls Cheat Sheet
-        self._draw_text(sx + 20, 286, "-- CONTROLS --", color_rgb(Color.YELLOW), font=self._header_font)
+        self._draw_text(tx, y, f"Gold:  {player.coins}", (240, 195, 30), font=self._header_font); y += LH
+        self._draw_text(tx, y, f"Score: {player.score}", color_rgb(Color.CYAN), font=self._header_font); y += LH + 6
+
+        # Keyboard Controls Cheat Sheet (short labels so they fit the wide font)
+        self._draw_text(tx, y, "-- CONTROLS --", color_rgb(Color.YELLOW), font=self._header_font); y += LH + 2
         controls = [
-            ("Arrows", "Move / Bump Attack"),
-            ("G Key", "Pick up item"),
-            ("I Key", "Open Inventory"),
-            ("Z Key", "Zap wand (+ Arrow)"),
+            ("Arrows", "Move/Attack"),
+            ("G", "Pick up"),
+            ("I", "Inventory"),
+            ("Z", "Zap wand"),
             ("Enter", "Use stairs"),
-            ("Q Key", "Quit game"),
+            ("Q", "Quit"),
         ]
-        curr_y = 316
         for key, desc in controls:
-            self._draw_text(sx + 20, curr_y, f"{key:6}: {desc}", color_rgb(Color.GRAY))
-            curr_y += 24
+            self._draw_text(tx, y, f"{key:6} {desc}", color_rgb(Color.GRAY)); y += LH - 2
 
         # Equipment slots panel
-        pygame.draw.line(self._screen, (35, 35, 45), (sx + 15, curr_y + 10), (sx + SIDEBAR_WIDTH - 15, curr_y + 10))
-        curr_y += 25
-        
-        self._draw_text(sx + 20, curr_y, "Weapon Slot:", color_rgb(Color.YELLOW))
+        y += 6
+        pygame.draw.line(self._screen, (35, 35, 45), (sx + 15, y), (sx + SIDEBAR_WIDTH - 15, y))
+        y += 12
+
+        self._draw_text(tx, y, "Weapon:", color_rgb(Color.YELLOW)); y += LH
         weapon_name = player.inventory.equipped_weapon.display_name if player.inventory.equipped_weapon else "(fists)"
-        self._draw_text(sx + 20, curr_y + 24, weapon_name, color_rgb(Color.CYAN), font=self._header_font)
-        
-        self._draw_text(sx + 20, curr_y + 55, "Wand Slot:", color_rgb(Color.YELLOW))
+        self._draw_text(tx, y, weapon_name, color_rgb(Color.CYAN), font=self._header_font); y += LH + 6
+
+        self._draw_text(tx, y, "Wand:", color_rgb(Color.YELLOW)); y += LH
         wand_name = player.inventory.equipped_wand.display_name if player.inventory.equipped_wand else "(none)"
-        self._draw_text(sx + 20, curr_y + 79, wand_name, color_rgb(Color.MAGENTA), font=self._header_font)
+        self._draw_text(tx, y, wand_name, color_rgb(Color.MAGENTA), font=self._header_font)
 
     def _draw_log(self, log: MessageLog):
         y_top = MAP_PIXEL_HEIGHT
@@ -1463,10 +1485,10 @@ class Renderer:
         row = 0
         curr_y = y_top + 12
         for text, color in log.recent:
-            if row >= 5:
+            if row >= 4:
                 break
             self._draw_text(15, curr_y, text, color_rgb(color), font=self._log_font)
-            curr_y += 24
+            curr_y += 30
             row += 1
 
     def _draw_text(self, x: int, y: int, text: str, color: tuple[int, int, int], font=None):
@@ -1481,37 +1503,36 @@ class Renderer:
         overlay.fill((0, 0, 0, 150))
         self._screen.blit(overlay, (0, 0))
 
-        # Modal Panel rect
-        w, h = 540, 420
+        # Modal Panel rect (wide enough for the larger DOS font, single column)
+        w, h = 780, 470
         mx = (MAP_PIXEL_WIDTH - w) // 2
         my = (MAP_PIXEL_HEIGHT - h) // 2
         modal_rect = pygame.Rect(mx, my, w, h)
-        
+
         # Modal shadow / border
         pygame.draw.rect(self._screen, (22, 25, 36), modal_rect, border_radius=8)
         pygame.draw.rect(self._screen, color_rgb(Color.CYAN), modal_rect, width=2, border_radius=8)
 
-        # Inventory details header
-        self._draw_text(mx + 25, my + 20, "-- INVENTORY --", color_rgb(Color.YELLOW), font=self._header_font)
-        self._draw_text(mx + 25, my + 45, "Press an item letter [ a - t ] to equip or use, or any other key to cancel", color_rgb(Color.GRAY))
-        pygame.draw.line(self._screen, (40, 45, 60), (mx + 20, my + 75), (mx + w - 20, my + 75), 2)
+        # Inventory details header + control hints
+        self._draw_text(mx + 25, my + 18, "-- INVENTORY --", color_rgb(Color.YELLOW), font=self._header_font)
+        self._draw_text(mx + 25, my + 52, "Letter: equip/use (again = unequip)   Shift+Letter: drop",
+                        color_rgb(Color.GRAY))
+        self._draw_text(mx + 25, my + 76, "ESC: close inventory", color_rgb(Color.GRAY))
+        pygame.draw.line(self._screen, (40, 45, 60), (mx + 20, my + 100), (mx + w - 20, my + 100), 2)
 
         items = player.inventory.items
         if not items:
-            self._draw_text(mx + 200, my + 180, "(empty backpack)", color_rgb(Color.GRAY), font=self._header_font)
+            self._draw_text(mx + 240, my + 220, "(empty backpack)", color_rgb(Color.GRAY), font=self._header_font)
         else:
-            col_w = (w - 60) // 2
-            row_h = 28
+            col_w = w - 50
+            row_h = 34
             max_rows = 10
-            
-            for i, item in enumerate(items):
+
+            for i, item in enumerate(items[:max_rows]):
                 letter = chr(ord("a") + i)
-                col = i // max_rows
-                row = i % max_rows
-                
-                item_x = mx + 25 + col * (col_w + 20)
-                item_y = my + 90 + row * row_h
-                
+                item_x = mx + 25
+                item_y = my + 114 + i * row_h
+
                 # Check item parameters
                 if item.kind.value == "healing_potion":
                     detail = f"heals {item.heal_amount}"
@@ -1530,27 +1551,33 @@ class Renderer:
                 is_equipped = (item is player.inventory.equipped_weapon or item is player.inventory.equipped_wand)
                 if is_equipped:
                     equipped = " (equipped)"
-                
+
                 # Render item slot box
-                slot_rect = pygame.Rect(item_x, item_y, col_w, row_h - 4)
+                slot_rect = pygame.Rect(item_x, item_y, col_w, row_h - 6)
                 bg_color = (35, 45, 75) if is_equipped else (26, 30, 45)
                 border_color = color_rgb(Color.GREEN) if is_equipped else (45, 50, 70)
                 pygame.draw.rect(self._screen, bg_color, slot_rect, border_radius=4)
                 pygame.draw.rect(self._screen, border_color, slot_rect, width=1, border_radius=4)
 
                 # Hotkey indicator label
-                key_surf = self._header_font.render(f" {letter.upper()} ", True, color_rgb(Color.YELLOW))
-                pygame.draw.rect(self._screen, (20, 22, 32), (item_x + 4, item_y + 3, 20, 18), border_radius=2)
-                self._screen.blit(key_surf, (item_x + 6, item_y + 2))
+                key_box = pygame.Rect(item_x + 6, item_y + 3, 26, row_h - 12)
+                pygame.draw.rect(self._screen, (20, 22, 32), key_box, border_radius=3)
+                key_surf = self._header_font.render(letter.upper(), True, color_rgb(Color.YELLOW))
+                self._screen.blit(key_surf, (key_box.centerx - key_surf.get_width() // 2,
+                                             key_box.centery - key_surf.get_height() // 2))
 
                 # Item name and details text
                 item_c = color_rgb(item.color)
                 name_surf = self._ui_font.render(item.display_name, True, item_c)
-                self._screen.blit(name_surf, (item_x + 30, item_y + 3))
+                self._screen.blit(name_surf, (item_x + 44, item_y + 5))
 
                 detail_c = color_rgb(Color.GREEN) if is_equipped else color_rgb(Color.GRAY)
                 detail_surf = self._ui_font.render(f" [{detail}]{equipped}", True, detail_c)
-                self._screen.blit(detail_surf, (item_x + 30 + name_surf.get_width(), item_y + 3))
+                self._screen.blit(detail_surf, (item_x + 50 + name_surf.get_width(), item_y + 5))
+
+            if len(items) > max_rows:
+                self._draw_text(mx + 25, my + 114 + max_rows * row_h,
+                                f"...and {len(items) - max_rows} more (drop some)", color_rgb(Color.GRAY))
 
     def _draw_shop_overlay(self, player: Player, merchant):
         # Create dark translucent screen overlay surface
@@ -1558,35 +1585,35 @@ class Renderer:
         overlay.fill((0, 0, 0, 150))
         self._screen.blit(overlay, (0, 0))
 
-        # Modal Panel rect
-        w, h = 540, 436
+        # Modal Panel rect (widened for the larger DOS font)
+        w, h = 780, 470
         mx = (MAP_PIXEL_WIDTH - w) // 2
         my = (MAP_PIXEL_HEIGHT - h) // 2
         modal_rect = pygame.Rect(mx, my, w, h)
-        
+
         # Modal shadow / border (warm wood theme)
         pygame.draw.rect(self._screen, (28, 22, 16), modal_rect, border_radius=8)
         pygame.draw.rect(self._screen, (235, 180, 25), modal_rect, width=2, border_radius=8)
 
         # Header Title
         self._draw_text(mx + 25, my + 20, "-- MERCHANT SHOP --", (235, 180, 25), font=self._header_font)
-        self._draw_text(mx + 25, my + 45, "Keys [ 1 - 4 ] or [ a - d ] to purchase. ESC to exit.", (180, 180, 180))
+        self._draw_text(mx + 25, my + 56, "Press 1-4 to buy.  ESC to exit.", (180, 180, 180))
         
         # Player Gold
-        gold_text = f"Your Gold: {player.coins}g"
+        gold_text = f"Gold: {player.coins}g"
         gold_surf = self._header_font.render(gold_text, True, (235, 180, 25))
         self._screen.blit(gold_surf, (mx + w - gold_surf.get_width() - 25, my + 20))
-        
-        pygame.draw.line(self._screen, (65, 50, 40), (mx + 20, my + 75), (mx + w - 20, my + 75), 2)
+
+        pygame.draw.line(self._screen, (65, 50, 40), (mx + 20, my + 90), (mx + w - 20, my + 90), 2)
 
         # 4 Shop Slots
         for i in range(4):
             item, price, is_sold_out = merchant.shop_items[i]
-            
+
             slot_x = mx + 20
-            slot_y = my + 90 + i * 80
+            slot_y = my + 102 + i * 88
             slot_w = w - 40
-            slot_h = 70
+            slot_h = 78
             slot_rect = pygame.Rect(slot_x, slot_y, slot_w, slot_h)
             
             # Select colors based on status
@@ -1633,28 +1660,28 @@ class Renderer:
             item_name = item.display_name.capitalize()
             name_color = color_rgb(item.color) if not is_sold_out else (120, 120, 120)
             name_surf = self._header_font.render(item_name, True, name_color)
-            self._screen.blit(name_surf, (slot_x + 90, slot_y + 12))
-            
-            # Item description
+            self._screen.blit(name_surf, (slot_x + 90, slot_y + 14))
+
+            # Item description (kept short to fit the wide font)
             if item.name == "bless weapon":
-                desc = "Blesses equipped weapon. Needed to harm the boss."
+                desc = "Blesses weapon. Can harm bosses."
             elif item.kind.value == "healing_potion":
-                desc = f"Restores {item.heal_amount} HP. Consumed from inventory."
+                desc = f"Restores {item.heal_amount} HP when used."
             elif item.kind.value == "weapon":
                 if item.name == "bow":
-                    desc = f"Ranged weapon: shoots arrows up to 10 cells (+{item.attack_bonus} atk)."
+                    desc = f"Bow: shoots arrows. +{item.attack_bonus} atk."
                 else:
-                    desc = f"Melee weapon: provides +{item.attack_bonus} attack bonus."
+                    desc = f"Melee weapon. +{item.attack_bonus} attack."
             elif item.kind.value == "wand":
-                desc = f"Ranged zap. Pierces. Deals {item.wand_damage} dmg. {item.charges} chg."
+                desc = f"Ranged zap, pierces. {item.wand_damage} dmg, {item.charges} chg."
             elif item.kind.value == "arrow":
-                desc = f"Quiver of {item.charges} arrows. Used with a Bow."
+                desc = f"Quiver of {item.charges} arrows. Use with a bow."
             else:
                 desc = ""
-                
+
             desc_color = (180, 180, 180) if not is_sold_out else (100, 100, 100)
             desc_surf = self._ui_font.render(desc, True, desc_color)
-            self._screen.blit(desc_surf, (slot_x + 90, slot_y + 40))
+            self._screen.blit(desc_surf, (slot_x + 90, slot_y + 46))
             
             # Price / Sold out
             if is_sold_out:
@@ -1774,9 +1801,9 @@ class Renderer:
             }
         ]
 
-        card_w, card_h = 320, 380
+        card_w, card_h = 372, 380
         card_y = 160
-        gap = 40
+        gap = 24
         start_x = (TOTAL_WIDTH - (3 * card_w + 2 * gap)) // 2
 
         for idx, data in enumerate(classes_data):

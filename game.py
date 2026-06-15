@@ -369,13 +369,17 @@ class Game:
                     if event.key in (pygame.K_ESCAPE, pygame.K_i):
                         self._state = GameState.PLAYING
                     else:
-                        char = event.unicode.lower()
-                        if char and 'a' <= char <= 'z':
-                            idx = ord(char) - ord('a')
+                        char = event.unicode
+                        if char and char.lower().isalpha() and 'a' <= char.lower() <= 'z':
+                            idx = ord(char.lower()) - ord('a')
                             items = self._player.inventory.items
                             if 0 <= idx < len(items):
-                                self._use_item(items[idx])
-                            self._state = GameState.PLAYING
+                                if char.isupper():
+                                    self._drop_item(items[idx])  # Shift+letter = drop
+                                else:
+                                    self._use_item(items[idx])   # letter = use/equip/unequip
+                            # Stay in the inventory so several items can be
+                            # managed in one visit; ESC / I closes it.
                             
                 elif self._state == GameState.ZAP_PROMPT:
                     dx, dy = 0, 0
@@ -742,6 +746,13 @@ class Game:
             self._player.inventory.remove(item)
             self._player.update_appearance()
         elif item.kind == ItemKind.WEAPON:
+            # Selecting the currently equipped weapon again unequips it.
+            if self._player.inventory.equipped_weapon is item:
+                self._player.inventory.equipped_weapon = None
+                self._player.update_appearance()
+                self._log.add(f"You unequip the {item.display_name}.", Color.GRAY)
+                self._renderer.add_damage_text(self._player.x, self._player.y, "UNEQUIP", (150, 150, 155))
+                return
             wand = self._player.inventory.equipped_wand
             if wand is not None:
                 self._player.inventory.equipped_wand = None
@@ -751,6 +762,12 @@ class Game:
             self._log.add(f"You equip the {item.display_name}.", Color.CYAN)
             self._renderer.add_damage_text(self._player.x, self._player.y, "EQUIP", (45, 175, 205))
         elif item.kind == ItemKind.WAND:
+            # Selecting the currently readied wand again stows it.
+            if self._player.inventory.equipped_wand is item:
+                self._player.inventory.equipped_wand = None
+                self._log.add(f"You stow the {item.display_name}.", Color.GRAY)
+                self._renderer.add_damage_text(self._player.x, self._player.y, "STOW", (150, 150, 155))
+                return
             weapon = self._player.inventory.equipped_weapon
             if weapon is not None:
                 self._player.inventory.equipped_weapon = None
@@ -763,6 +780,37 @@ class Game:
             self._log.add("Use keys by walking into locked chests.", Color.YELLOW)
         elif item.kind == ItemKind.ARROW:
             self._log.add("Arrows are used automatically when attacking with a Bow.", Color.YELLOW)
+
+    def _drop_item(self, item: Item):
+        from Items.item import ItemEntity
+        inv = self._player.inventory
+        if item not in inv.items:
+            return
+
+        # Find a free, walkable tile for the dropped item: the player's own
+        # tile first, then the surrounding ring.
+        px, py = self._player.x, self._player.y
+        candidates = [(px, py)]
+        for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0),
+                       (-1, -1), (1, -1), (-1, 1), (1, 1)]:
+            candidates.append((px + dx, py + dy))
+
+        drop_tile = None
+        for cx, cy in candidates:
+            if self._level.is_walkable(cx, cy) and self._level.item_at(cx, cy) is None:
+                drop_tile = (cx, cy)
+                break
+
+        if drop_tile is None:
+            self._log.add("No room to drop that here.", Color.RED)
+            return
+
+        inv.remove(item)  # also unequips if it was equipped
+        self._player.update_appearance()
+        self._level.items.append(ItemEntity(drop_tile[0], drop_tile[1], item))
+        self._log.add(f"You drop the {item.display_name}.", Color.GRAY)
+        self._renderer.add_damage_text(self._player.x, self._player.y, "DROP", (150, 150, 155))
+        self._sound.play("walk")
 
     def _interact_with_npc(self, npc):
         self._sound.play("walk")

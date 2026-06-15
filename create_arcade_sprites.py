@@ -473,26 +473,99 @@ MONSTERS = {
 }
 
 
-def make_monster_sheet(name, art):
-    """2-frame idle: frame 0 normal, frame 1 shifted + tiny feature flicker."""
-    sheet = pygame.Surface((CELL * 2, CELL), pygame.SRCALPHA)
-    # frame 0
-    f0 = pygame.Surface((CELL, CELL), pygame.SRCALPHA)
-    blit_pixmap(f0, art, 0, 0)
-    sheet.blit(f0, (0, 0))
-    # frame 1 wobble
-    f1 = pygame.Surface((CELL, CELL), pygame.SRCALPHA)
-    wobble_x = PIX if len(name) % 2 == 0 else 0
-    blit_pixmap(f1, art, wobble_x, PIX)
+# Closed-jaw pose so the mimic can chomp between frames.
+MIMIC_CLOSED = [
+    "................",
+    "................",
+    "................",
+    "..wwwwwwwwww....",
+    ".wWwWwWwWwWww...",
+    ".wWWWWWWWWWWw...",
+    ".wwwwwwwwwwww...",
+    "..wwwwwwwwww....",
+    ".wwwwwwwwwwww...",
+    ".wGwwwwwwwwGw...",
+    ".wwwwwwwwwwww...",
+    ".wwwwwwwwwwww...",
+    "..w..w..w..w....",
+    "................",
+    "................",
+    "................",
+]
 
-    # Low-res "blink" accent for monsters with eye pixels.
-    eye_px = PALETTE['E']
-    blink_px = PALETTE['W']
+# Per-monster idle animation: vertical bob + horizontal sway across the 4
+# frames, an optional alternate pose (`alt` on `alt_frames`), and a named
+# flourish so every bad guy moves in its own way.
+MONSTER_ANIM = {
+    "rat":          dict(bob=[0, 0, 0, 0],    sway=[0, 1, 0, -1], fx="rat"),
+    "goblin":       dict(bob=[0, -1, 0, -1],  sway=[0, 0, 0, 0],  fx="blink"),
+    "orc":          dict(bob=[0, -1, -1, 0],  sway=[0, 0, 0, 0],  fx=None),
+    "troll":        dict(bob=[0, 0, -1, 0],   sway=[-1, 0, 1, 0], fx=None),
+    "wraith":       dict(bob=[0, -1, -2, -1], sway=[0, 1, 0, -1], fx="flare"),
+    "dread knight": dict(bob=[0, -1, 0, -1],  sway=[0, 0, 0, 0],  fx="flare"),
+    "dragon":       dict(bob=[0, -1, 0, -1],  sway=[0, 0, 0, 0],  fx="wing"),
+    "mimic":        dict(bob=[0, 0, 0, 0],    sway=[0, 0, 0, 0],  fx=None,
+                         alt=MIMIC_CLOSED, alt_frames=(2, 3)),
+    "chest":        dict(bob=[0, 0, 0, 0],    sway=[0, 0, 0, 0],  fx="gleam"),
+    "locked chest": dict(bob=[0, 0, 0, 0],    sway=[0, 0, 0, 0],  fx="gleam"),
+}
+
+
+def _recolor(surf, frm, to):
+    """Swap every art-pixel of color `frm` to `to` (used for eye blinks)."""
     for x in range(0, CELL, PIX):
         for y in range(0, CELL, PIX):
-            if f1.get_at((x, y))[:3] == eye_px:
-                f1.fill(blink_px, (x, y, PIX, PIX))
-    sheet.blit(f1, (CELL, 0))
+            if surf.get_at((x, y))[:3] == frm:
+                surf.fill(to, (x, y, PIX, PIX))
+
+
+def draw_monster_fx(surf, fx, frame, ox, oy):
+    """Signature per-frame flourish for each bad guy."""
+    P = PALETTE
+    if fx == "blink":
+        # Eyes shut briefly on one beat.
+        if frame == 2:
+            _recolor(surf, P['E'], P['q'])
+    elif fx == "flare":
+        # Glowing eyes pulse brighter on the off-beats.
+        if frame in (1, 3):
+            _recolor(surf, P['E'], (255, 176, 96))
+    elif fx == "wing":
+        # Membrane wings flap up and down, plus a drifting smoke wisp.
+        wy = 1 if frame in (1, 2) else 4
+        surf.fill(P['r'], (ox + 0 * PIX, oy + wy * PIX, 2 * PIX, PIX))
+        surf.fill(P['r'], (ox + 13 * PIX, oy + wy * PIX, 2 * PIX, PIX))
+        if frame in (0, 2):
+            surf.fill(P['F'], (ox + 13 * PIX, oy + 8 * PIX, PIX, PIX))
+    elif fx == "rat":
+        # Twitchy tail that wags up and down off the left flank.
+        ty = 6 if frame in (1, 3) else 8
+        surf.fill(P['j'], (ox + 0 * PIX, oy + ty * PIX, PIX, PIX))
+        surf.fill(P['j'], (ox + 1 * PIX, oy + (ty + 1) * PIX, PIX, PIX))
+    elif fx == "gleam":
+        # A sparkle travelling across the gold band.
+        sx = 4 + frame * 2
+        surf.fill(P['W'], (ox + sx * PIX, oy + 4 * PIX, PIX, PIX))
+
+
+def make_monster_sheet(name, art):
+    """4-frame idle loop (128x32) saved to assets/sprites/<name>.png."""
+    cfg = MONSTER_ANIM.get(name, dict(bob=[0, -1, 0, -1], sway=[0, 0, 0, 0], fx=None))
+    bob = cfg.get("bob", [0, 0, 0, 0])
+    sway = cfg.get("sway", [0, 0, 0, 0])
+    alt = cfg.get("alt")
+    alt_frames = cfg.get("alt_frames", ())
+
+    sheet = pygame.Surface((CELL * 4, CELL), pygame.SRCALPHA)
+    for f in range(4):
+        cell = pygame.Surface((CELL, CELL), pygame.SRCALPHA)
+        body = alt if (alt is not None and f in alt_frames) else art
+        ox = sway[f] * PIX
+        oy = bob[f] * PIX
+        blit_pixmap(cell, body, ox, oy)
+        if cfg.get("fx"):
+            draw_monster_fx(cell, cfg["fx"], f, ox, oy)
+        sheet.blit(cell, (f * CELL, 0))
     os.makedirs("assets/sprites", exist_ok=True)
     safe = name.replace(" ", "_")
     pygame.image.save(sheet, f"assets/sprites/{safe}.png")
