@@ -416,6 +416,24 @@ MONSTERS = {
         "................",
         "................",
     ],
+    "witch": [
+        ".......K........",
+        "......KpK.......",
+        "......ppK.......",
+        ".....pppK.......",
+        "....ppppppK.....",
+        "...KKKKKKKKKK...",
+        "....NNNNNN......",
+        "....NKNNKN......",
+        "....NNqqNN......",
+        "...pPPPPPPp.....",
+        "..pPPPMPPPp.....",
+        "..pPPPPPPPp.....",
+        "..pPPPPPPPp.....",
+        "...pp..pp.......",
+        "................",
+        "................",
+    ],
     "mimic": [
         "................",
         "................",
@@ -502,6 +520,7 @@ MONSTER_ANIM = {
     "orc":          dict(bob=[0, -1, -1, 0],  sway=[0, 0, 0, 0],  fx=None),
     "troll":        dict(bob=[0, 0, -1, 0],   sway=[-1, 0, 1, 0], fx=None),
     "wraith":       dict(bob=[0, -1, -2, -1], sway=[0, 1, 0, -1], fx="flare"),
+    "witch":        dict(bob=[0, -1, 0, -1],  sway=[0, 0, 0, 0],  fx="witch"),
     "dread knight": dict(bob=[0, -1, 0, -1],  sway=[0, 0, 0, 0],  fx="flare"),
     "dragon":       dict(bob=[0, -1, 0, -1],  sway=[0, 0, 0, 0],  fx="wing"),
     "mimic":        dict(bob=[0, 0, 0, 0],    sway=[0, 0, 0, 0],  fx=None,
@@ -546,6 +565,13 @@ def draw_monster_fx(surf, fx, frame, ox, oy):
         # A sparkle travelling across the gold band.
         sx = 4 + frame * 2
         surf.fill(P['W'], (ox + sx * PIX, oy + 4 * PIX, PIX, PIX))
+    elif fx == "witch":
+        # A fireball crackling to life at her fingertips.
+        core = P['o'] if frame % 2 == 0 else P['y']
+        surf.fill(P['r'], (ox + 12 * PIX, oy + 9 * PIX, 3 * PIX, 3 * PIX))
+        surf.fill(core, (ox + 13 * PIX, oy + 10 * PIX, PIX, PIX))
+        if frame in (1, 3):
+            surf.fill(P['R'], (ox + 12 * PIX, oy + 8 * PIX, PIX, PIX))
 
 
 def make_monster_sheet(name, art):

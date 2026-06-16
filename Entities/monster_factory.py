@@ -29,6 +29,17 @@ def _make(name: str, glyph: str, color: Color, hp: int, atk: int) -> Monster:
     return m
 
 
+def _make_ranged(name: str, glyph: str, color: Color, hp: int, atk: int,
+                 ranged: str, ranged_range: int, cooldown: int) -> Monster:
+    """A monster that can attack from a distance ('arrow' or 'fireball')."""
+    m = _make(name, glyph, color, hp, atk)
+    m.ranged = ranged              # projectile type to throw/shoot
+    m.ranged_range = ranged_range  # max tiles it will fire from
+    m.ranged_cooldown = 0          # turns until it can fire again
+    m.ranged_cooldown_max = cooldown
+    return m
+
+
 def _make_dragon() -> Monster:
     m = Monster()
     m.name = "dragon"
@@ -49,8 +60,13 @@ def create(x: int, y: int, depth: int, rng: random.Random) -> Monster:
         pool.append((4, lambda: _make("orc", "👹", Color.DARK_GREEN, 14, 5)))
     if depth >= 4:
         pool.append((2, _make_dragon))
+        # Witches hurl fireballs from afar.
+        pool.append((3, lambda: _make_ranged("witch", "🧙", Color.MAGENTA, 18, 6,
+                                             "fireball", 6, 4)))
     if depth >= 5:
-        pool.append((3, lambda: _make("troll", "🧌", Color.MAGENTA, 24, 7)))
+        # Trolls now loose arrows at range, then close in to club you.
+        pool.append((3, lambda: _make_ranged("troll", "🧌", Color.MAGENTA, 24, 7,
+                                             "arrow", 5, 3)))
     if depth >= 7:
         pool.append((2, lambda: _make("wraith", "👻", Color.CYAN, 32, 10)))
 

@@ -17,6 +17,7 @@ from UI.keyboard import KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_UP
 from UI.message_log import MessageLog
 from UI.renderer import MAP_HEIGHT, MAP_WIDTH, Renderer
 from UI.sound import SoundManager
+import save_system
 
 FOV_RADIUS = 8
 HIGH_SCORE_FILE = "highscores.txt"
@@ -32,6 +33,8 @@ class GameState(Enum):
     GAME_OVER = 6
     SHOP = 7
     CLASS_SELECT = 8
+    CAMPAIGN_SELECT = 9
+    GRAPPLE_PROMPT = 10
 
 
 class Game:
@@ -54,6 +57,8 @@ class Game:
         self._highscores = _load_scores()
         self._active_merchant = None
         self._selected_class_idx = 0
+        self._active_campaign = None       # slot 1-3 this session writes to
+        self._selected_campaign_idx = 0    # cursor on the campaign-select screen
         self._sound = SoundManager()
 
         # Real-time update variables
@@ -162,6 +167,8 @@ class Game:
             # 3. Render frame view
             if self._state == GameState.TITLE_SCREEN:
                 self._renderer.render_title_screen(self._highscores)
+            elif self._state == GameState.CAMPAIGN_SELECT:
+                self._renderer.render_campaign_select(save_system.list_campaigns(), self._selected_campaign_idx)
             elif self._state == GameState.CLASS_SELECT:
                 self._renderer.render_class_select(self._selected_class_idx)
             elif self._state == GameState.GAME_OVER:
@@ -297,8 +304,82 @@ class Game:
         self._attack_cooldown = 0
         self._monster_timer = MONSTER_ACT_COOLDOWN
         self._wizard_recharge_timer = 300
-        
+
         self._state = GameState.PLAYING
+
+        # Establish the campaign's first save point immediately.
+        if self._active_campaign is not None:
+            try:
+                save_system.save_campaign(self, self._active_campaign)
+            except Exception:
+                pass
+
+    def _handle_campaign_select_key(self, event):
+        metas = save_system.list_campaigns()
+        n = save_system.NUM_CAMPAIGNS
+
+        if event.key in (pygame.K_ESCAPE,):
+            self._state = GameState.TITLE_SCREEN
+            return
+        if event.key in (pygame.K_LEFT, pygame.K_a, pygame.K_UP, pygame.K_w):
+            self._selected_campaign_idx = (self._selected_campaign_idx - 1) % n
+            return
+        if event.key in (pygame.K_RIGHT, pygame.K_d, pygame.K_DOWN, pygame.K_s):
+            self._selected_campaign_idx = (self._selected_campaign_idx + 1) % n
+            return
+        if event.key in (pygame.K_x, pygame.K_DELETE, pygame.K_BACKSPACE):
+            # Erase the highlighted campaign so the slot can be reused.
+            slot = self._selected_campaign_idx + 1
+            if metas[self._selected_campaign_idx] is not None:
+                save_system.delete_campaign(slot)
+            return
+
+        # Number keys jump straight to a slot.
+        if event.unicode in ("1", "2", "3"):
+            self._selected_campaign_idx = int(event.unicode) - 1
+
+        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER) or event.unicode in ("1", "2", "3"):
+            slot = self._selected_campaign_idx + 1
+            if metas[self._selected_campaign_idx] is not None:
+                self._load_campaign_and_play(slot)
+            else:
+                # Empty slot -> create a fresh hero here.
+                self._active_campaign = slot
+                self._selected_class_idx = 0
+                self._state = GameState.CLASS_SELECT
+
+    def _save_current_campaign(self):
+        if self._active_campaign is None:
+            self._active_campaign = 1
+        try:
+            save_system.save_campaign(self, self._active_campaign)
+            self._log.add(f"Campaign {self._active_campaign} saved.", Color.GREEN)
+            self._renderer.add_damage_text(self._player.x, self._player.y, "SAVED", (46, 196, 120))
+            self._sound.play("pickup")
+        except Exception:
+            self._log.add("Save failed.", Color.RED)
+
+    def _load_campaign_and_play(self, slot: int) -> bool:
+        if not save_system.load_campaign(self, slot):
+            return False
+        self._active_campaign = slot
+        self._active_merchant = None
+
+        # Clear stale animation/interpolation state from the prior view.
+        self._renderer._entity_positions = {}
+        self._renderer._bumps = {}
+        self._renderer._projectiles = []
+        self._renderer._damage_texts = []
+        self._renderer._particles = []
+
+        self._move_cooldown = 0
+        self._attack_cooldown = 0
+        self._monster_timer = MONSTER_ACT_COOLDOWN
+        self._wizard_recharge_timer = 300
+
+        self._state = GameState.PLAYING
+        self._log.add(f"Campaign {slot} loaded. Welcome back, {self._player.char_class}!", Color.YELLOW)
+        return True
 
     def _handle_pygame_events(self):
         for event in pygame.event.get():
@@ -314,12 +395,15 @@ class Game:
 
                 if self._state == GameState.TITLE_SCREEN:
                     if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-                        self._state = GameState.CLASS_SELECT
-                        self._selected_class_idx = 0
-                        
+                        self._state = GameState.CAMPAIGN_SELECT
+                        self._selected_campaign_idx = 0
+
+                elif self._state == GameState.CAMPAIGN_SELECT:
+                    self._handle_campaign_select_key(event)
+
                 elif self._state == GameState.CLASS_SELECT:
                     if event.key in (pygame.K_ESCAPE, pygame.K_q):
-                        self._state = GameState.TITLE_SCREEN
+                        self._state = GameState.CAMPAIGN_SELECT
                     elif event.key in (pygame.K_LEFT, pygame.K_a, pygame.K_UP, pygame.K_w):
                         self._selected_class_idx = (self._selected_class_idx - 1) % 3
                     elif event.key in (pygame.K_RIGHT, pygame.K_d, pygame.K_DOWN, pygame.K_s):
@@ -343,7 +427,12 @@ class Game:
                 elif self._state == GameState.PLAYING:
                     if self._renderer.is_animating():
                         continue
-                        
+
+                    # Quick-save the active campaign
+                    if event.key == pygame.K_F5:
+                        self._save_current_campaign()
+                        continue
+
                     # Handle Enter key for stairs
                     if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                         current_tile = self._level.tiles[self._player.x][self._player.y].type
@@ -361,8 +450,8 @@ class Game:
                         self._try_ascend()
                     else:
                         key_str = self._map_key(event.key)
-                        # Discrete gameplay hotkeys (inventory, pickup, quit)
-                        if key_str in ("g", "i", "q"):
+                        # Discrete gameplay hotkeys (pickup, inventory, zap, grapple)
+                        if key_str in ("g", "i", "z", "h"):
                             self._handle_input(key_str)
                                 
                 elif self._state == GameState.INVENTORY:
@@ -397,7 +486,23 @@ class Game:
                         continue
 
                     self._start_lightning(dx, dy)
-                    
+
+                elif self._state == GameState.GRAPPLE_PROMPT:
+                    dx, dy = 0, 0
+                    if event.key in (pygame.K_UP, pygame.K_w):
+                        dy = -1
+                    elif event.key in (pygame.K_DOWN, pygame.K_s):
+                        dy = 1
+                    elif event.key in (pygame.K_LEFT, pygame.K_a):
+                        dx = -1
+                    elif event.key in (pygame.K_RIGHT, pygame.K_d):
+                        dx = 1
+                    else:
+                        self._log.add("You coil the rope back up.", Color.DARK_GRAY)
+                        self._state = GameState.PLAYING
+                        continue
+                    self._start_grapple(dx, dy)
+
                 elif self._state == GameState.SHOP:
                     if event.key in (pygame.K_ESCAPE, pygame.K_q):
                         self._state = GameState.PLAYING
@@ -461,6 +566,8 @@ class Game:
             return "i"
         if key_val == pygame.K_z:
             return "z"
+        if key_val == pygame.K_h:
+            return "h"
         return None
 
     def _trigger_game_over(self):
@@ -479,13 +586,13 @@ class Game:
             self._level = self._overworld
             self._player.depth = 0
             
-            # Spawn at the entrance the player ascended from
+            # Spawn back on the dungeon entrance the player ascended from
             if self._current_dungeon_id == "crypt":
-                spawn = (5, 13)
+                spawn = self._overworld.stairs_down_crypt
             elif self._current_dungeon_id == "cellar":
-                spawn = (20, 4)
+                spawn = self._overworld.stairs_down_cellar
             elif self._current_dungeon_id == "cave":
-                spawn = (24, 13)
+                spawn = self._overworld.stairs_down_cave
             else:
                 spawn = self._overworld.player_spawn
                 
@@ -543,6 +650,15 @@ class Game:
                 return False
             self._log.add("Zap which direction? (arrow keys / WASD)", Color.MAGENTA)
             self._state = GameState.ZAP_PROMPT
+            return False
+        if lower == "h":
+            has_hook = any(it.kind == ItemKind.TOOL and it.name == "grappling hook"
+                           for it in self._player.inventory.items)
+            if not has_hook:
+                self._log.add("You have no grappling hook.", Color.DARK_GRAY)
+                return False
+            self._log.add("Grapple which direction? (arrow keys / WASD)", Color.CYAN)
+            self._state = GameState.GRAPPLE_PROMPT
             return False
         return False
 
@@ -780,6 +896,8 @@ class Game:
             self._log.add("Use keys by walking into locked chests.", Color.YELLOW)
         elif item.kind == ItemKind.ARROW:
             self._log.add("Arrows are used automatically when attacking with a Bow.", Color.YELLOW)
+        elif item.kind == ItemKind.TOOL:
+            self._log.add("Press [H], then a direction, to swing across a chasm.", Color.CYAN)
 
     def _drop_item(self, item: Item):
         from Items.item import ItemEntity
@@ -956,7 +1074,7 @@ class Game:
     def _find_vacant_neighbor(self, x: int, y: int, exclude: tuple[int, int] = None) -> tuple[int, int]:
         for dx, dy in [(-1,0), (1,0), (0,-1), (0,1), (-1,-1), (1,-1), (-1,1), (1,1)]:
             nx, ny = x + dx, y + dy
-            if 0 <= nx < MAP_WIDTH and 0 <= ny < MAP_HEIGHT:
+            if self._level.in_bounds(nx, ny):
                 if self._level.tiles[nx][ny].is_walkable:
                     if exclude is None or (nx != exclude[0] or ny != exclude[1]):
                         return nx, ny
@@ -965,11 +1083,12 @@ class Game:
     def _try_descend(self) -> bool:
         if self._in_overworld:
             px, py = self._player.x, self._player.y
-            if (px, py) == (5, 13):
+            ow = self._overworld
+            if (px, py) == ow.stairs_down_crypt:
                 dungeon_id = "crypt"
-            elif (px, py) == (20, 4):
+            elif (px, py) == ow.stairs_down_cellar:
                 dungeon_id = "cellar"
-            elif (px, py) == (24, 13):
+            elif (px, py) == ow.stairs_down_cave:
                 dungeon_id = "cave"
             else:
                 self._log.add("No stairs down here.", Color.DARK_GRAY)
@@ -1148,6 +1267,67 @@ class Game:
 
         # Launch arrow projectile animation on the renderer (type="flame_arrow" or "arrow")
         self._renderer.add_projectile(path, on_projectile_complete, type="flame_arrow" if is_flame else "arrow")
+
+    GRAPPLE_RANGE = 6
+
+    def _start_grapple(self, dx: int, dy: int):
+        # Scan the chosen direction: fly over chasm tiles and land on the first
+        # solid ground beyond them. A wall stops the hook; ground with no chasm
+        # in between means there's nothing to swing across.
+        self._state = GameState.PLAYING
+        if dx == 0 and dy == 0:
+            return
+
+        if dx > 0:
+            self._player.facing = "RIGHT"
+        elif dx < 0:
+            self._player.facing = "LEFT"
+        elif dy > 0:
+            self._player.facing = "DOWN"
+        else:
+            self._player.facing = "UP"
+
+        px, py = self._player.x, self._player.y
+        saw_chasm = False
+        landing = None
+        for i in range(1, self.GRAPPLE_RANGE + 1):
+            tx, ty = px + dx * i, py + dy * i
+            if not self._level.in_bounds(tx, ty):
+                break
+            ttype = self._level.tiles[tx][ty].type
+            if ttype == TileType.CHASM:
+                saw_chasm = True
+                continue
+            if ttype == TileType.WALL:
+                break  # the hook can't bite into a wall
+            # Solid, walkable ground.
+            if saw_chasm and self._level.monster_at(tx, ty) is None:
+                landing = (tx, ty)
+            break
+
+        if landing is None:
+            self._log.add("No chasm to swing across that way.", Color.DARK_GRAY)
+            return
+
+        path = self._get_line_path(px, py, landing[0], landing[1])
+        if not path:
+            return
+
+        self._state = GameState.ANIMATING
+        self._sound.play("shoot")
+
+        def on_complete():
+            self._player.x, self._player.y = landing
+            self._player.update_appearance()
+            self._renderer.add_damage_text(landing[0], landing[1], "SWING!", (120, 200, 255))
+            self._try_use_fountain(landing[0], landing[1])
+            if self._player.is_alive:
+                self._state = GameState.PLAYING
+            else:
+                self._trigger_game_over()
+
+        self._renderer.add_projectile(path, on_complete, type="hook")
+        self._log.add("You swing across the chasm!", Color.CYAN)
 
     def _start_lightning(self, dx: int, dy: int):
         wand = self._player.inventory.equipped_wand
@@ -1375,6 +1555,60 @@ class Game:
             path.append((x, y))
         return path
 
+    def _try_monster_ranged(self, m: Monster, dx: int, dy: int) -> bool:
+        """Fire a monster's ranged attack at the player if in range, off
+        cooldown, and with a clear line of fire. Returns True if it fired."""
+        if getattr(m, "ranged_cooldown", 0) > 0:
+            m.ranged_cooldown -= 1
+
+        dist = abs(dx) + abs(dy)
+        if not (1 < dist <= getattr(m, "ranged_range", 5)):
+            return False
+        if getattr(m, "ranged_cooldown", 0) > 0:
+            return False
+
+        # Require an unobstructed straight path to the player.
+        path = self._get_line_path(m.x, m.y, self._player.x, self._player.y)
+        if not path:
+            return False
+        for px, py in path[:-1]:
+            if not self._level.tiles[px][py].is_walkable:
+                return False
+
+        m.ranged_cooldown = getattr(m, "ranged_cooldown_max", 3)
+        self._state = GameState.ANIMATING
+        self._sound.play("shoot")
+        rtype = m.ranged  # "arrow" or "fireball"
+        dest = path[-1]
+
+        def on_complete():
+            # Only connects if the player is still on the targeted tile.
+            if self._player.x == dest[0] and self._player.y == dest[1]:
+                dmg = max(1, m.attack + self._rng.randint(-1, 1))
+                if getattr(self._player, "char_class", "") == "Knight":
+                    dmg = max(1, dmg - 1)
+                self._player.hp -= dmg
+                self._renderer.add_damage_text(self._player.x, self._player.y, f"-{dmg}", (220, 55, 55))
+                self._renderer.trigger_shake(6.0)
+                if rtype == "fireball":
+                    self._log.add(f"The {m.name}'s fireball scorches you for {dmg}!", Color.RED)
+                    self._renderer.add_particles(self._player.x, self._player.y, (255, 100, 0), count=12)
+                    if getattr(self._player, "burning_timer", 0) < 120:
+                        self._player.burning_timer = 120
+                else:
+                    self._log.add(f"The {m.name}'s arrow strikes you for {dmg}!", Color.RED)
+                    self._renderer.add_particles(self._player.x, self._player.y, (210, 50, 50), count=8)
+            else:
+                self._log.add(f"The {m.name}'s {rtype} whistles past you.", Color.DARK_GRAY)
+
+            if self._player.is_alive:
+                self._state = GameState.PLAYING
+            else:
+                self._trigger_game_over()
+
+        self._renderer.add_projectile(path, on_complete, type=rtype)
+        return True
+
     def _monsters_act(self):
         for m in list(self._level.monsters):
             if not m.is_alive:
@@ -1413,6 +1647,11 @@ class Game:
                     self._log.add(f"The {m.name} kills you...", Color.RED)
                     return
                 continue
+
+            # Ranged attackers (trolls shoot arrows, witches hurl fireballs)
+            if getattr(m, "ranged", None):
+                if self._try_monster_ranged(m, dx, dy):
+                    continue
 
             # Dragon Fire Breath AI
             if m.name == "dragon":

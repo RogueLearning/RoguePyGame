@@ -11,6 +11,7 @@ class ItemKind(Enum):
     COIN = "coin"
     KEY = "key"
     ARROW = "arrow"
+    TOOL = "tool"
 
 
 class Item:
@@ -50,6 +51,10 @@ _WEAPON_NAMES = ["dagger", "shortsword", "longsword", "battle axe", "warhammer"]
 
 def create(x: int, y: int, depth: int, rng: random.Random) -> ItemEntity:
     ie = ItemEntity(x=x, y=y)
+    # Rare grappling hook -- lets you cross dungeon chasms.
+    if rng.randrange(100) < 10:
+        ie.item = make_grapple()
+        return ie
     if depth >= 2 and rng.randrange(100) < 15:
         item = Item()
         if rng.randrange(100) < 50:
@@ -136,4 +141,17 @@ def create_key(x: int, y: int) -> ItemEntity:
     item.color = Color.YELLOW
     item.kind = ItemKind.KEY
     return ItemEntity(x=x, y=y, item=item)
+
+
+def make_grapple() -> Item:
+    item = Item()
+    item.name = "grappling hook"
+    item.glyph = "🪝"
+    item.color = Color.CYAN
+    item.kind = ItemKind.TOOL
+    return item
+
+
+def create_grapple(x: int, y: int) -> ItemEntity:
+    return ItemEntity(x=x, y=y, item=make_grapple())
 

@@ -7,6 +7,7 @@ class TileType(Enum):
     STAIRS_DOWN = "stairs_down"
     STAIRS_UP = "stairs_up"
     FOUNTAIN = "fountain"
+    CHASM = "chasm"
 
 
 class Tile:
@@ -19,8 +20,10 @@ class Tile:
 
     @property
     def is_walkable(self) -> bool:
-        return self.type != TileType.WALL
+        # Chasms are open gaps -- you can't walk across without a grappling hook.
+        return self.type not in (TileType.WALL, TileType.CHASM)
 
     @property
     def blocks_sight(self) -> bool:
+        # You can see across a chasm; only walls block line of sight.
         return self.type == TileType.WALL

@@ -91,6 +91,8 @@ class Renderer:
         self._shake_intensity = 0.0
         self._shake_decay = 0.85
         self._frame_count = 0
+        self._cam_x = 0
+        self._cam_y = 0
 
         # Slash & Flash Animation states
         self._slashes = []
@@ -109,7 +111,7 @@ class Renderer:
         # Load animated monster sprites (64x32: 2-frame idle wobble)
         self._monster_sprites = {}
         for mname in ("rat", "goblin", "orc", "troll", "wraith", "dread_knight",
-                      "dragon", "mimic", "chest", "locked_chest"):
+                      "dragon", "mimic", "witch", "chest", "locked_chest"):
             try:
                 self._monster_sprites[mname] = pygame.image.load(
                     f"assets/sprites/{mname}.png").convert_alpha()
@@ -304,7 +306,7 @@ class Renderer:
                         "life": random.uniform(0.15, 0.35),
                         "max_life": 1.0
                     })
-                else:
+                elif ptype != "hook":  # the grappling hook leaves no fiery trail
                     self._particles.append({
                         "x": px,
                         "y": py,
@@ -323,10 +325,14 @@ class Renderer:
                 if ptype == "lightning":
                     self.add_particles(dest[0], dest[1], (100, 200, 255), count=15)
                     self.add_particles(dest[0], dest[1], (255, 255, 255), count=8)
+                    self.trigger_shake(8.0)
+                elif ptype == "hook":
+                    self.add_particles(dest[0], dest[1], (190, 190, 200), count=8)
+                    self.trigger_shake(4.0)
                 else:
                     self.add_particles(dest[0], dest[1], (230, 55, 55), count=18)
                     self.add_particles(dest[0], dest[1], (235, 195, 45), count=12)
-                self.trigger_shake(8.0)
+                    self.trigger_shake(8.0)
                 proj["callback"]()
 
         # 6. Update Screen Flash Decay
@@ -346,12 +352,19 @@ class Renderer:
         # Background clearing
         self._screen.fill(ATARI_BG)
 
-        # Calculate screen shake offset
-        shake_x = 0
-        shake_y = 0
+        # Calculate screen shake jitter
+        sjx = sjy = 0
         if self._shake_intensity > 0.0:
-            shake_x = int(random.uniform(-self._shake_intensity, self._shake_intensity))
-            shake_y = int(random.uniform(-self._shake_intensity, self._shake_intensity))
+            sjx = int(random.uniform(-self._shake_intensity, self._shake_intensity))
+            sjy = int(random.uniform(-self._shake_intensity, self._shake_intensity))
+
+        # Camera follows the player and clamps to the map edges. For maps the
+        # size of the viewport (dungeons) this is always (0, 0). The camera
+        # pixel offset is folded into the same offset every map-space draw adds,
+        # so all sprites/tiles/effects scroll together.
+        self._cam_x, self._cam_y = self._compute_camera(level, player)
+        shake_x = sjx - self._cam_x * TILE_SIZE
+        shake_y = sjy - self._cam_y * TILE_SIZE
 
         # Render Map Grid
         self._draw_map(level, shake_x, shake_y)
@@ -400,13 +413,29 @@ class Renderer:
 
         pygame.display.flip()
 
+    def _compute_camera(self, level: DungeonLevel, player: Player) -> tuple[int, int]:
+        """Top-left viewport tile, centered on the player and clamped so the
+        MAP_WIDTH x MAP_HEIGHT window never leaves the map."""
+        cam_x = player.x - MAP_WIDTH // 2
+        cam_y = player.y - MAP_HEIGHT // 2
+        cam_x = max(0, min(cam_x, max(0, level.width - MAP_WIDTH)))
+        cam_y = max(0, min(cam_y, max(0, level.height - MAP_HEIGHT)))
+        return cam_x, cam_y
+
     def _draw_map(self, level: DungeonLevel, shake_x: int, shake_y: int):
-        w = min(MAP_WIDTH, level.width)
-        h = min(MAP_HEIGHT, level.height)
         is_overworld = getattr(level, "is_overworld", False)
-        
-        for x in range(w):
-            for y in range(h):
+        # Biome quadrants scale with the map (town TL, farm TR, cemetery BL, field BR).
+        hw = level.width // 2
+        hh = level.height // 2
+
+        # Only iterate the visible window for performance on large maps.
+        x0 = self._cam_x
+        y0 = self._cam_y
+        x1 = min(level.width, x0 + MAP_WIDTH)
+        y1 = min(level.height, y0 + MAP_HEIGHT)
+
+        for x in range(x0, x1):
+            for y in range(y0, y1):
                 t = level.tiles[x][y]
                 if not t.explored:
                     continue
@@ -416,12 +445,17 @@ class Renderer:
                 # Fetch basic tile color definitions
                 visible = t.visible
 
+                # Chasms look the same in any biome: a dark, bottomless gap.
+                if t.type == TileType.CHASM:
+                    self._draw_chasm(rect, visible)
+                    continue
+
                 if is_overworld:
                     # Determine overworld quadrant
-                    in_town = (x < 15 and y < 9)
-                    in_farm = (x >= 15 and y < 9)
-                    in_cemetery = (x < 15 and y >= 9)
-                    in_field = (x >= 15 and y >= 9)
+                    in_town = (x < hw and y < hh)
+                    in_farm = (x >= hw and y < hh)
+                    in_cemetery = (x < hw and y >= hh)
+                    in_field = (x >= hw and y >= hh)
                     
                     if t.type == TileType.WALL:
                         if in_town:
@@ -595,6 +629,18 @@ class Renderer:
             pygame.draw.line(self._screen, mortar, (x, rect.top + 2), (x, rect.top + 12), 1)
             pygame.draw.line(self._screen, mortar, (x + 6, rect.top + 14), (x + 6, rect.bottom - 2), 1)
 
+    def _draw_chasm(self, rect: pygame.Rect, visible: bool):
+        # A bottomless gap: near-black centre with a lighter rocky rim so the
+        # edge reads clearly against the floor.
+        rim = (60, 64, 92) if visible else (34, 36, 54)
+        pygame.draw.rect(self._screen, rim, rect)
+        pit = pygame.Rect(rect.left + 2, rect.top + 2, rect.width - 4, rect.height - 4)
+        pygame.draw.rect(self._screen, (8, 8, 14), pit)
+        # A couple of faint depth lines on the far wall of the pit.
+        depth_c = (24, 26, 40) if visible else (16, 17, 26)
+        pygame.draw.line(self._screen, depth_c, (pit.left, pit.top + 5), (pit.right, pit.top + 5))
+        pygame.draw.line(self._screen, depth_c, (pit.left, pit.top + 11), (pit.right, pit.top + 11))
+
     def _draw_floor(self, rect: pygame.Rect, color: tuple[int, int, int], visible: bool):
         pygame.draw.rect(self._screen, color, rect)
 
@@ -645,7 +691,7 @@ class Renderer:
 
     def _draw_items(self, level: DungeonLevel, shake_x: int, shake_y: int):
         for ie in level.items:
-            if ie.x >= MAP_WIDTH or ie.y >= MAP_HEIGHT:
+            if not level.in_bounds(ie.x, ie.y):
                 continue
             if not level.tiles[ie.x][ie.y].visible:
                 continue
@@ -665,9 +711,27 @@ class Renderer:
                 self._draw_key(rect)
             elif ie.item.kind.value == "arrow":
                 self._draw_arrows_item(rect)
+            elif ie.item.kind.value == "tool":
+                self._draw_grapple(rect)
             else:
                 # Fallback circular pouch item
                 pygame.draw.circle(self._screen, color, rect.center, 6)
+
+    def _draw_grapple(self, rect: pygame.Rect):
+        # Grappling hook: a rope to a 3-pronged hook.
+        rope = (180, 150, 90)
+        steel = (200, 205, 215)
+        # Rope coil
+        pygame.draw.line(self._screen, rope, (rect.left + 7, rect.bottom - 7),
+                         (rect.centerx, rect.centery), 2)
+        # Hook shaft
+        pygame.draw.line(self._screen, steel, (rect.centerx, rect.centery),
+                         (rect.centerx + 4, rect.top + 8), 2)
+        # Three prongs at the head
+        hx, hy = rect.centerx + 4, rect.top + 8
+        pygame.draw.line(self._screen, steel, (hx, hy), (hx - 4, hy + 4), 2)
+        pygame.draw.line(self._screen, steel, (hx, hy), (hx + 4, hy + 4), 2)
+        pygame.draw.line(self._screen, steel, (hx, hy), (hx, hy + 5), 2)
 
     def _draw_key(self, rect: pygame.Rect):
         # Golden Key drawing
@@ -778,7 +842,7 @@ class Renderer:
         for m in level.monsters:
             if not m.is_alive:
                 continue
-            if m.x >= MAP_WIDTH or m.y >= MAP_HEIGHT:
+            if not level.in_bounds(m.x, m.y):
                 continue
             if not level.tiles[m.x][m.y].visible:
                 continue
@@ -794,11 +858,11 @@ class Renderer:
             self._draw_monster_sprite(rect, sprite_name, color_rgb(m.color))
 
         # Render Player
-        if player.x < MAP_WIDTH and player.y < MAP_HEIGHT:
+        if level.in_bounds(player.x, player.y):
             vx, vy = self._get_interpolated_pos(player)
             ox, oy = self._get_bump_offset(player)
             rect = pygame.Rect(vx + ox + shake_x, vy + oy + shake_y, TILE_SIZE, TILE_SIZE)
-            
+
             enchanted = (player.inventory.equipped_weapon and player.inventory.equipped_weapon.is_enchanted)
             self._draw_player_sprite(rect, color_rgb(player.color), enchanted, player=player)
 
@@ -1288,6 +1352,18 @@ class Renderer:
                 f_color = (255, 140, 0) if ptype == "flame_arrow" else (240, 240, 245)
                 pygame.draw.line(self._screen, f_color, (int(bx), int(by)), (int(fx1), int(fy1)), 2)
                 pygame.draw.line(self._screen, f_color, (int(bx), int(by)), (int(fx2), int(fy2)), 2)
+            elif ptype == "hook":
+                # Taut rope from the player's tile to the flying hook head.
+                dx = path[1][0] - path[0][0] if len(path) > 1 else 0
+                dy = path[1][1] - path[0][1] if len(path) > 1 else 0
+                player_x = (path[0][0] - dx + 0.5) * TILE_SIZE + shake_x
+                player_y = (path[0][1] - dy + 0.5) * TILE_SIZE + shake_y
+                pygame.draw.line(self._screen, (180, 150, 90),
+                                 (int(player_x), int(player_y)), (int(px), int(py)), 2)
+                # Hook head prongs at the tip.
+                pygame.draw.circle(self._screen, (210, 215, 225), (int(px), int(py)), 3)
+                pygame.draw.line(self._screen, (210, 215, 225), (int(px), int(py)), (int(px) - 4, int(py) - 4), 2)
+                pygame.draw.line(self._screen, (210, 215, 225), (int(px), int(py)), (int(px) + 4, int(py) - 4), 2)
             else:
                 # Fireball core
                 pygame.draw.circle(self._screen, (255, 230, 40), (int(px), int(py)), 8)
@@ -1455,7 +1531,9 @@ class Renderer:
             ("G", "Pick up"),
             ("I", "Inventory"),
             ("Z", "Zap wand"),
+            ("H", "Grapple"),
             ("Enter", "Use stairs"),
+            ("F5", "Save game"),
             ("Q", "Quit"),
         ]
         for key, desc in controls:
@@ -1655,7 +1733,9 @@ class Renderer:
                 self._draw_wand(icon_rect, icon_color)
             elif item.kind.value == "arrow":
                 self._draw_arrows_item(icon_rect)
-                
+            elif item.kind.value == "tool":
+                self._draw_grapple(icon_rect)
+
             # Item Name
             item_name = item.display_name.capitalize()
             name_color = color_rgb(item.color) if not is_sold_out else (120, 120, 120)
@@ -1676,6 +1756,8 @@ class Renderer:
                 desc = f"Ranged zap, pierces. {item.wand_damage} dmg, {item.charges} chg."
             elif item.kind.value == "arrow":
                 desc = f"Quiver of {item.charges} arrows. Use with a bow."
+            elif item.kind.value == "tool":
+                desc = "Press [H] to swing across chasms."
             else:
                 desc = ""
 
@@ -1693,6 +1775,62 @@ class Renderer:
                 
             price_surf = self._header_font.render(price_text, True, price_color)
             self._screen.blit(price_surf, (slot_x + slot_w - price_surf.get_width() - 20, slot_y + (slot_h - price_surf.get_height()) // 2))
+
+    def render_campaign_select(self, slots, selected_idx: int):
+        """slots: list of meta-dict-or-None, one per campaign slot."""
+        self._screen.fill((8, 10, 20))
+        for _ in range(24):
+            x = random.randint(10, TOTAL_WIDTH - 10)
+            y = random.randint(10, TOTAL_HEIGHT - 10)
+            pygame.draw.circle(self._screen, (66, 96, 150), (x, y), random.choice([1, 2]))
+
+        title = self._title_font.render("SELECT CAMPAIGN", True, ATARI_NEON_YELLOW)
+        self._screen.blit(title, ((TOTAL_WIDTH - title.get_width()) // 2, 60))
+
+        card_w, card_h = 760, 110
+        gap = 24
+        total_h = 3 * card_h + 2 * gap
+        start_y = 170
+        card_x = (TOTAL_WIDTH - card_w) // 2
+
+        for i in range(3):
+            meta = slots[i] if i < len(slots) else None
+            cy = start_y + i * (card_h + gap)
+            rect = pygame.Rect(card_x, cy, card_w, card_h)
+            selected = (i == selected_idx)
+
+            bg = (32, 28, 44) if selected else (16, 18, 26)
+            border = ATARI_NEON_YELLOW if selected else (60, 64, 80)
+            pygame.draw.rect(self._screen, bg, rect, border_radius=8)
+            pygame.draw.rect(self._screen, border, rect, width=3 if selected else 1, border_radius=8)
+
+            self._draw_text(card_x + 24, cy + 16, f"CAMPAIGN {i + 1}",
+                            border if selected else (200, 200, 210), font=self._header_font)
+
+            if meta is None:
+                self._draw_text(card_x + 24, cy + 58, "[ Empty ]  -  begin a new hero",
+                                color_rgb(Color.GRAY))
+            else:
+                line1 = f"{meta.get('char_class', '?')}   {meta.get('location', '')}"
+                self._draw_text(card_x + 24, cy + 54, line1, color_rgb(Color.CYAN))
+                line2 = (f"Score {meta.get('score', 0)}   "
+                         f"Depth {meta.get('max_depth', 0)}   "
+                         f"Kills {meta.get('kills', 0)}   "
+                         f"Gold {meta.get('coins', 0)}")
+                self._draw_text(card_x + 24, cy + 80, line2, color_rgb(Color.WHITE))
+                saved = meta.get("saved_at", "")
+                if saved:
+                    s_surf = self._ui_font.render(saved.replace("T", "  "), True, color_rgb(Color.GRAY))
+                    self._screen.blit(s_surf, (card_x + card_w - s_surf.get_width() - 24, cy + 16))
+
+        info_y = start_y + total_h + 24
+        self._draw_text(0, info_y, "", color_rgb(Color.GRAY))  # spacer (no-op)
+        nav = "Arrows to choose - ENTER or 1/2/3 to play - X to erase - ESC back"
+        nav_surf = self._header_font.render(nav, True, color_rgb(Color.GREEN))
+        self._screen.blit(nav_surf, ((TOTAL_WIDTH - nav_surf.get_width()) // 2, info_y))
+
+        self._screen.blit(self._crt_overlay, (0, 0))
+        pygame.display.flip()
 
     def render_title_screen(self, highscores):
         self._screen.fill((8, 10, 20))
