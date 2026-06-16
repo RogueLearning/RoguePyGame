@@ -42,7 +42,8 @@ _ITEM_FIELDS = ["name", "glyph", "heal_amount", "attack_bonus", "is_enchanted",
 # Optional monster attributes worth preserving (set on various subclasses).
 _MONSTER_OPT = ["is_boss", "is_chest", "is_locked", "is_mimic", "is_npc",
                 "is_merchant", "depth", "fire_cooldown", "ranged", "ranged_range",
-                "ranged_cooldown", "ranged_cooldown_max", "npc_type"]
+                "ranged_cooldown", "ranged_cooldown_max", "npc_type",
+                "sprite", "artifact", "dungeon_id"]
 
 
 # ------------------------------------------------------------------
@@ -198,6 +199,7 @@ def serialize_player(player) -> dict:
         "char_class": getattr(player, "char_class", "Wizard"),
         "facing": getattr(player, "facing", "DOWN"),
         "burning_timer": getattr(player, "burning_timer", 0),
+        "artifacts": list(getattr(player, "artifacts", [])),
         "glyph": player.glyph,
         "color": int(player.color),
         "name": player.name,
@@ -221,6 +223,7 @@ def apply_player(player, d: dict):
     player.char_class = d.get("char_class", "Wizard")
     player.facing = d.get("facing", "DOWN")
     player.burning_timer = d.get("burning_timer", 0)
+    player.artifacts = list(d.get("artifacts", []))
     player.glyph = d.get("glyph", player.glyph)
     player.color = Color(d.get("color", int(Color.WHITE)))
     player.name = d.get("name", "you")

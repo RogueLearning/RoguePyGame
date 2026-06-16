@@ -387,6 +387,9 @@ class Renderer:
         # Render Damage text overlay
         self._draw_damage_texts(shake_x, shake_y)
 
+        # Boss health bar (fixed to the top of the viewport, no camera offset)
+        self._draw_boss_bar(level)
+
         # Render Screen Flash Overlay (only over map viewport)
         if self._flash_alpha > 0:
             flash_surf = pygame.Surface((MAP_PIXEL_WIDTH, MAP_PIXEL_HEIGHT), pygame.SRCALPHA)
@@ -713,9 +716,25 @@ class Renderer:
                 self._draw_arrows_item(rect)
             elif ie.item.kind.value == "tool":
                 self._draw_grapple(rect)
+            elif ie.item.kind.value == "artifact":
+                self._draw_artifact(rect, color)
             else:
                 # Fallback circular pouch item
                 pygame.draw.circle(self._screen, color, rect.center, 6)
+
+    def _draw_artifact(self, rect: pygame.Rect, color: tuple[int, int, int]):
+        # A glowing relic gem with a pulsing halo.
+        pulse = 0.5 + 0.5 * math.sin(self._frame_count * 0.15)
+        halo_r = int(9 + 3 * pulse)
+        halo = pygame.Surface((halo_r * 2, halo_r * 2), pygame.SRCALPHA)
+        pygame.draw.circle(halo, color + (int(70 + 80 * pulse),), (halo_r, halo_r), halo_r)
+        self._screen.blit(halo, (rect.centerx - halo_r, rect.centery - halo_r))
+        # Faceted gem (diamond).
+        cx, cy = rect.center
+        pts = [(cx, cy - 7), (cx + 6, cy), (cx, cy + 7), (cx - 6, cy)]
+        pygame.draw.polygon(self._screen, color, pts)
+        pygame.draw.polygon(self._screen, (255, 255, 255), pts, 1)
+        pygame.draw.line(self._screen, (255, 255, 255), (cx - 2, cy - 2), (cx + 2, cy - 3), 1)
 
     def _draw_grapple(self, rect: pygame.Rect):
         # Grappling hook: a rope to a 3-pronged hook.
@@ -837,6 +856,26 @@ class Renderer:
         pygame.draw.circle(self._screen, color, end, 4)
         pygame.draw.circle(self._screen, (255, 255, 255), end, 2)
 
+    def _draw_boss_bar(self, level: DungeonLevel):
+        boss = next((m for m in level.monsters
+                     if getattr(m, "is_boss", False) and m.is_alive
+                     and level.in_bounds(m.x, m.y) and level.tiles[m.x][m.y].visible), None)
+        if boss is None:
+            return
+        bar_w = MAP_PIXEL_WIDTH - 200
+        bx = (MAP_PIXEL_WIDTH - bar_w) // 2
+        by = 14
+        # Name + frame
+        name_surf = self._header_font.render(boss.name.upper(), True, (255, 80, 80))
+        self._screen.blit(name_surf, ((MAP_PIXEL_WIDTH - name_surf.get_width()) // 2, by - 4))
+        by += 24
+        pygame.draw.rect(self._screen, (10, 10, 14), (bx - 2, by - 2, bar_w + 4, 16), border_radius=2)
+        ratio = max(0.0, boss.hp / boss.max_hp) if boss.max_hp else 0
+        pygame.draw.rect(self._screen, (60, 20, 24), (bx, by, bar_w, 12))
+        if ratio > 0:
+            pygame.draw.rect(self._screen, (220, 40, 40), (bx, by, int(bar_w * ratio), 12))
+        pygame.draw.rect(self._screen, (180, 60, 60), (bx - 2, by - 2, bar_w + 4, 16), width=1, border_radius=2)
+
     def _draw_entities(self, level: DungeonLevel, player: Player, shake_x: int, shake_y: int):
         # Render Monsters
         for m in level.monsters:
@@ -854,7 +893,20 @@ class Renderer:
             ox, oy = self._get_bump_offset(m)
             
             rect = pygame.Rect(vx + ox + shake_x, vy + oy + shake_y, TILE_SIZE, TILE_SIZE)
-            sprite_name = getattr(m, "npc_type", m.name) if getattr(m, "is_npc", False) else m.name
+
+            # Bosses get a pulsing menace aura behind them.
+            if getattr(m, "is_boss", False):
+                pulse = 0.5 + 0.5 * math.sin(self._frame_count * 0.12)
+                radius = int(18 + 4 * pulse)
+                aura = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+                pygame.draw.circle(aura, (220, 40, 40, int(70 + 60 * pulse)),
+                                   (radius, radius), radius)
+                self._screen.blit(aura, (rect.centerx - radius, rect.centery - radius))
+
+            # `sprite` (bosses) overrides name->spritesheet lookup; NPCs use npc_type.
+            sprite_name = getattr(m, "sprite", None)
+            if sprite_name is None:
+                sprite_name = getattr(m, "npc_type", m.name) if getattr(m, "is_npc", False) else m.name
             self._draw_monster_sprite(rect, sprite_name, color_rgb(m.color))
 
         # Render Player
@@ -1522,7 +1574,9 @@ class Renderer:
         self._draw_text(tx, y, arrows_text, color_rgb(Color.WHITE)); y += LH
 
         self._draw_text(tx, y, f"Gold:  {player.coins}", (240, 195, 30), font=self._header_font); y += LH
-        self._draw_text(tx, y, f"Score: {player.score}", color_rgb(Color.CYAN), font=self._header_font); y += LH + 6
+        self._draw_text(tx, y, f"Score: {player.score}", color_rgb(Color.CYAN), font=self._header_font); y += LH
+        relics = len(getattr(player, "artifacts", []))
+        self._draw_text(tx, y, f"Relics: {relics}/3", (255, 215, 0), font=self._header_font); y += LH + 6
 
         # Keyboard Controls Cheat Sheet (short labels so they fit the wide font)
         self._draw_text(tx, y, "-- CONTROLS --", color_rgb(Color.YELLOW), font=self._header_font); y += LH + 2
@@ -2044,6 +2098,49 @@ class Renderer:
 
         # Exit prompt
         exit_surf = self._header_font.render("Press ANY KEY to Return to Title Screen", True, color_rgb(Color.YELLOW))
+        self._screen.blit(exit_surf, ((TOTAL_WIDTH - exit_surf.get_width()) // 2, 620))
+
+        self._screen.blit(self._crt_overlay, (0, 0))
+        pygame.display.flip()
+
+    def render_victory(self, player: Player):
+        self._screen.fill((14, 18, 10))
+
+        # Celebratory sparkles
+        for _ in range(40):
+            x = random.randint(10, TOTAL_WIDTH - 10)
+            y = random.randint(10, TOTAL_HEIGHT - 10)
+            c = random.choice([(255, 215, 0), (120, 220, 255), (255, 255, 255)])
+            pygame.draw.circle(self._screen, c, (x, y), random.choice([1, 2]))
+
+        t_surf = self._title_font.render("VICTORY!", True, ATARI_NEON_YELLOW)
+        self._screen.blit(t_surf, ((TOTAL_WIDTH - t_surf.get_width()) // 2, 70))
+
+        sub = self._header_font.render("All three relics are yours -- the realm is saved!", True, color_rgb(Color.GREEN))
+        self._screen.blit(sub, ((TOTAL_WIDTH - sub.get_width()) // 2, 150))
+
+        # Show the three relics with their gems.
+        relics = getattr(player, "artifacts", [])
+        names = ["Soul Gem", "Iron Crown", "Dragon Heart"]
+        cols = {"Soul Gem": (200, 60, 200), "Iron Crown": (240, 200, 30), "Dragon Heart": (220, 50, 50)}
+        spacing = 320
+        start_x = (TOTAL_WIDTH - spacing * 2) // 2
+        for i, nm in enumerate(names):
+            cxp = start_x + i * spacing
+            cyp = 260
+            got = nm in relics
+            color = cols[nm] if got else (60, 60, 66)
+            pts = [(cxp, cyp - 16), (cxp + 14, cyp), (cxp, cyp + 16), (cxp - 14, cyp)]
+            pygame.draw.polygon(self._screen, color, pts)
+            pygame.draw.polygon(self._screen, (255, 255, 255) if got else (90, 90, 96), pts, 2)
+            lbl = self._ui_font.render(nm, True, color if got else (90, 90, 96))
+            self._screen.blit(lbl, (cxp - lbl.get_width() // 2, cyp + 28))
+
+        self._draw_text(TOTAL_WIDTH // 4, 360, f"Class:    {getattr(player, 'char_class', '?')}", color_rgb(Color.CYAN), font=self._header_font)
+        self._draw_text(TOTAL_WIDTH // 4, 395, f"Monsters defeated:  {player.kills}", color_rgb(Color.WHITE), font=self._header_font)
+        self._draw_text(TOTAL_WIDTH // 4, 430, f"Final score:  {player.score + 1000}  (incl. +1000 victory bonus)", color_rgb(Color.YELLOW), font=self._header_font)
+
+        exit_surf = self._header_font.render("Press ANY KEY to Return to Title Screen", True, color_rgb(Color.GREEN))
         self._screen.blit(exit_surf, ((TOTAL_WIDTH - exit_surf.get_width()) // 2, 620))
 
         self._screen.blit(self._crt_overlay, (0, 0))

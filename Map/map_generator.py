@@ -11,6 +11,9 @@ from Map.tile import TileType
 OVERWORLD_WIDTH = 90
 OVERWORLD_HEIGHT = 60
 
+# Each dungeon is this many floors deep; the last floor is the boss lair.
+DUNGEON_DEPTH = 5
+
 _VILLAGER_LINES = [
     "Welcome, traveler! Three dungeons lie hidden across these lands.",
     "Press [I] to manage your gear before heading underground.",
@@ -67,7 +70,8 @@ class MapGenerator:
     def __init__(self, rng: random.Random):
         self._rng = rng
 
-    def generate(self, width: int, height: int, depth: int, allow_boss_spawn: bool) -> DungeonLevel:
+    def generate(self, width: int, height: int, depth: int, allow_boss_spawn: bool,
+                 dungeon_id: str = "") -> DungeonLevel:
         level = DungeonLevel(width, height)
         rooms: list[_Room] = []
         max_attempts = 30
@@ -98,21 +102,23 @@ class MapGenerator:
 
         level.player_spawn = rooms[0].center
 
+        # The final floor of a dungeon is the boss lair: no stairs down, and a
+        # unique boss guards it. Earlier floors descend normally.
+        is_boss_floor = dungeon_id != "" and depth >= DUNGEON_DEPTH
         stairs = rooms[-1].center
-        level.tiles[stairs[0]][stairs[1]].type = TileType.STAIRS_DOWN
-        level.stairs_down = stairs
+        if is_boss_floor:
+            bx, by = stairs
+            level.stairs_down = stairs  # kept for reference; tile stays FLOOR
+            level.monsters.append(monster_factory.create_dungeon_boss(dungeon_id, bx, by))
+        else:
+            level.tiles[stairs[0]][stairs[1]].type = TileType.STAIRS_DOWN
+            level.stairs_down = stairs
 
         if depth >= 1:
             stairs_up = rooms[0].center
             level.tiles[stairs_up[0]][stairs_up[1]].type = TileType.STAIRS_UP
             level.stairs_up = stairs_up
             level.has_stairs_up = True
-
-        should_spawn_boss = allow_boss_spawn and depth > 3 and self._rng.randrange(100) < 15
-        if should_spawn_boss and len(rooms) > 1:
-            room_index = self._rng.randrange(1, len(rooms))
-            bx, by = rooms[room_index].random_point(self._rng)
-            level.monsters.append(monster_factory.create_boss(bx, by))
 
         # Spawn merchant with 50% chance on depth >= 2
         if depth >= 2 and self._rng.randrange(100) < 50 and len(rooms) > 1:

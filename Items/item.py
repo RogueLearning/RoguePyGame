@@ -12,6 +12,7 @@ class ItemKind(Enum):
     KEY = "key"
     ARROW = "arrow"
     TOOL = "tool"
+    ARTIFACT = "artifact"
 
 
 class Item:
@@ -141,6 +142,27 @@ def create_key(x: int, y: int) -> ItemEntity:
     item.color = Color.YELLOW
     item.kind = ItemKind.KEY
     return ItemEntity(x=x, y=y, item=item)
+
+
+# Relic colors keyed by name (used by renderer + drop glow).
+_ARTIFACT_COLORS = {
+    "Soul Gem": Color.MAGENTA,
+    "Iron Crown": Color.YELLOW,
+    "Dragon Heart": Color.RED,
+}
+
+
+def make_artifact(name: str) -> Item:
+    item = Item()
+    item.name = name
+    item.glyph = "💎"
+    item.color = _ARTIFACT_COLORS.get(name, Color.CYAN)
+    item.kind = ItemKind.ARTIFACT
+    return item
+
+
+def create_artifact(name: str, x: int, y: int) -> ItemEntity:
+    return ItemEntity(x=x, y=y, item=make_artifact(name))
 
 
 def make_grapple() -> Item:

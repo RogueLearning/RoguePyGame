@@ -10,7 +10,7 @@ from Entities.player import Player
 from Items.item import Item, ItemKind
 from Map import fov
 from Map.dungeon_level import DungeonLevel
-from Map.map_generator import MapGenerator
+from Map.map_generator import MapGenerator, DUNGEON_DEPTH
 from Map.tile import TileType
 from UI.colors import Color
 from UI.keyboard import KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_UP
@@ -35,6 +35,7 @@ class GameState(Enum):
     CLASS_SELECT = 8
     CAMPAIGN_SELECT = 9
     GRAPPLE_PROMPT = 10
+    VICTORY = 11
 
 
 class Game:
@@ -173,6 +174,8 @@ class Game:
                 self._renderer.render_class_select(self._selected_class_idx)
             elif self._state == GameState.GAME_OVER:
                 self._renderer.render_game_over(self._player, self._highscores)
+            elif self._state == GameState.VICTORY:
+                self._renderer.render_victory(self._player)
             else:
                 # PLAYING, ANIMATING, INVENTORY, ZAP_PROMPT, SHOP
                 fov.compute(self._level, self._player.x, self._player.y, FOV_RADIUS)
@@ -420,10 +423,10 @@ class Game:
                         elif char in ("3", "r"):
                             self._select_class_and_start("Rogue")
                         
-                elif self._state == GameState.GAME_OVER:
+                elif self._state in (GameState.GAME_OVER, GameState.VICTORY):
                     self._state = GameState.TITLE_SCREEN
                     self._reset_game()
-                    
+
                 elif self._state == GameState.PLAYING:
                     if self._renderer.is_animating():
                         continue
@@ -579,6 +582,22 @@ class Game:
         self._highscores = self._highscores[:10]
         _save_scores(self._highscores)
 
+    def _trigger_victory(self):
+        self._state = GameState.VICTORY
+        self._sound.play("bless")
+        self._renderer.trigger_flash(180, (255, 230, 140))
+        self._log.add("With all three relics, the realm is saved!", Color.YELLOW)
+        # A completed run scores a big bonus; record it on the leaderboard.
+        bonus_score = self._player.score + 1000
+        entry = (bonus_score, self._player.max_depth, self._player.kills, datetime.datetime.now())
+        self._highscores.append(entry)
+        self._highscores.sort(key=lambda s: s[0], reverse=True)
+        self._highscores = self._highscores[:10]
+        _save_scores(self._highscores)
+        # Erase the campaign save -- this run is complete.
+        if self._active_campaign is not None:
+            save_system.delete_campaign(self._active_campaign)
+
     def _enter_level(self, dungeon_id: str, depth: int, from_above: bool):
         # Transition to Overworld
         if depth == 0:
@@ -608,11 +627,12 @@ class Game:
         level = self._levels.get((dungeon_id, depth))
         if level is None:
             gen = MapGenerator(self._rng)
-            level = gen.generate(MAP_WIDTH, MAP_HEIGHT, depth, not self._boss_spawned)
+            level = gen.generate(MAP_WIDTH, MAP_HEIGHT, depth, not self._boss_spawned,
+                                 dungeon_id=dungeon_id)
             self._levels[(dungeon_id, depth)] = level
             if any(m.is_boss for m in level.monsters):
                 self._boss_spawned = True
-                self._log.add("An ominous presence stalks this floor...", Color.DARK_RED)
+                self._log.add("The lair of a great beast! Slay it to claim its relic.", Color.DARK_RED)
                 
         self._level = level
         self._player.depth = depth
@@ -799,6 +819,19 @@ class Game:
             self._drop_monster_loot(m)
 
     def _drop_monster_loot(self, m: Monster):
+        # A dungeon boss leaves behind its relic on death.
+        artifact = getattr(m, "artifact", None)
+        if artifact:
+            from Items.item import create_artifact
+            ax, ay = m.x, m.y
+            if self._level.item_at(ax, ay) is not None:
+                ax, ay = self._find_vacant_neighbor(m.x, m.y)
+            self._level.items.append(create_artifact(artifact, ax, ay))
+            self._log.add(f"The {m.name} falls! The {artifact} glimmers in the rubble.", Color.YELLOW)
+            self._renderer.add_particles(ax, ay, (255, 215, 0), count=24)
+            self._renderer.trigger_flash(120, (255, 230, 120))
+            self._sound.play("bless")
+
         # Boss always drops a massive heap of coins!
         # Normal monsters drop coins with a 40% probability.
         chance = 1.0 if m.is_boss else 0.40
@@ -835,6 +868,20 @@ class Game:
             if ie in self._level.items:
                 self._level.items.remove(ie)
             self._sound.play("pickup")
+            return True
+        if ie.item.kind == ItemKind.ARTIFACT:
+            if ie.item.name not in self._player.artifacts:
+                self._player.artifacts.append(ie.item.name)
+            if ie in self._level.items:
+                self._level.items.remove(ie)
+            got = len(self._player.artifacts)
+            self._log.add(f"You claim the {ie.item.name}!  ({got}/3 relics)", Color.YELLOW)
+            self._renderer.add_damage_text(self._player.x, self._player.y, "RELIC!", (255, 215, 0))
+            self._renderer.add_particles(self._player.x, self._player.y, (255, 215, 0), count=20)
+            self._renderer.trigger_flash(150, (255, 230, 120))
+            self._sound.play("bless")
+            if got >= 3:
+                self._trigger_victory()
             return True
         if not self._player.inventory.add(ie.item):
             self._log.add("Your pack is full.", Color.RED)

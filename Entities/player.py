@@ -24,6 +24,7 @@ class Player(Entity):
         self.coins: int = 0
         self.arrows: int = 0
         self.char_class: str = "Wizard"
+        self.artifacts: list[str] = []  # relics collected from dungeon bosses
 
 
     @property

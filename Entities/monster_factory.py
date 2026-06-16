@@ -18,6 +18,41 @@ def create_boss(x: int, y: int) -> Monster:
     return m
 
 
+# Each dungeon ends in a unique boss guarding a unique artifact. `sprite`
+# reuses an existing spritesheet; `artifact` is the relic dropped on death.
+_BOSS_DEFS = {
+    "crypt":  dict(name="Bonelord", sprite="dread knight", hp=55, atk=12,
+                   color=Color.DARK_RED, artifact="Soul Gem"),
+    "cellar": dict(name="Orc Warlord", sprite="orc", hp=64, atk=13,
+                   color=Color.DARK_GREEN, artifact="Iron Crown"),
+    "cave":   dict(name="Ancient Wyrm", sprite="dragon", hp=74, atk=14,
+                   color=Color.RED, artifact="Dragon Heart", ranged="fireball"),
+}
+
+
+def create_dungeon_boss(dungeon_id: str, x: int, y: int) -> Monster:
+    d = _BOSS_DEFS.get(dungeon_id, _BOSS_DEFS["crypt"])
+    m = Monster()
+    m.name = d["name"]
+    m.sprite = d["sprite"]          # renderer uses this for the spritesheet
+    m.glyph = "💀"
+    m.color = d["color"]
+    m.hp = d["hp"]
+    m.max_hp = d["hp"]
+    m.attack = d["atk"]
+    m.is_boss = True
+    m.dungeon_id = dungeon_id
+    m.artifact = d["artifact"]
+    if d.get("ranged"):
+        m.ranged = d["ranged"]
+        m.ranged_range = 6
+        m.ranged_cooldown = 0
+        m.ranged_cooldown_max = 3
+    m.x = x
+    m.y = y
+    return m
+
+
 def _make(name: str, glyph: str, color: Color, hp: int, atk: int) -> Monster:
     m = Monster()
     m.name = name
@@ -67,7 +102,7 @@ def create(x: int, y: int, depth: int, rng: random.Random) -> Monster:
         # Trolls now loose arrows at range, then close in to club you.
         pool.append((3, lambda: _make_ranged("troll", "🧌", Color.MAGENTA, 24, 7,
                                              "arrow", 5, 3)))
-    if depth >= 7:
+    if depth >= 5:
         pool.append((2, lambda: _make("wraith", "👻", Color.CYAN, 32, 10)))
 
     total = sum(w for w, _ in pool)
