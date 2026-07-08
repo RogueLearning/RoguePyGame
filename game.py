@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import os
 import random
@@ -67,7 +68,7 @@ class Game:
         self._attack_cooldown = 0
         self._monster_timer = MONSTER_ACT_COOLDOWN
 
-    def run(self):
+    async def run(self):
         # Clear and generate overworld at startup
         self._levels = {}
         self._boss_spawned = False
@@ -185,6 +186,10 @@ class Game:
 
             # 4. Clock Tick
             self._clock.tick(60)
+
+            # Yield to the browser's event loop every frame (required by pygbag
+            # for the WASM/web build; harmless on desktop).
+            await asyncio.sleep(0)
 
         pygame.quit()
 

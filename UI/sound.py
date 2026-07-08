@@ -1,6 +1,7 @@
 import math
 import struct
 import random
+import sys
 import pygame
 
 from UI.colors import Color
@@ -9,14 +10,21 @@ from UI.colors import Color
 class SoundManager:
     def __init__(self):
         self.enabled = False
+        self._sounds = {}
+
+        # On the web (pygbag/WASM) the browser blocks the audio context until a
+        # user gesture, and the per-sample synthesis below is slow under WASM --
+        # both can stall startup before the first frame. Run silent there.
+        if sys.platform == "emscripten":
+            return
+
         try:
             # Initialize mixer with retro-friendly settings
             pygame.mixer.init(frequency=22050, size=-16, channels=1)
             self.enabled = True
         except Exception as e:
             print(f"Sound Manager: could not initialize mixer ({e}). Sound is disabled.")
-            
-        self._sounds = {}
+
         if self.enabled:
             self._init_sounds()
 
