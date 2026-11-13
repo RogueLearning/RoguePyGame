@@ -488,6 +488,24 @@ MONSTERS = {
         "................",
         "................",
     ],
+    "giant spider": [
+        "................",
+        "................",
+        "......FFFF......",
+        ".....FffffF.....",
+        "F...FfNffNfF...F",
+        ".F..FffNNffF..F.",
+        "..F.FffffffF.F..",
+        "...FFFffffFFF...",
+        "FFF..FFFFFF..FFF",
+        "...FFfEffEfFF...",
+        "..F..FffffF..F..",
+        ".F..F.FFFF.F..F.",
+        "F..F...WW...F..F",
+        "..F..........F..",
+        "................",
+        "................",
+    ],
 }
 
 
@@ -527,6 +545,7 @@ MONSTER_ANIM = {
                          alt=MIMIC_CLOSED, alt_frames=(2, 3)),
     "chest":        dict(bob=[0, 0, 0, 0],    sway=[0, 0, 0, 0],  fx="gleam"),
     "locked chest": dict(bob=[0, 0, 0, 0],    sway=[0, 0, 0, 0],  fx="gleam"),
+    "giant spider": dict(bob=[0, 0, -1, 0],   sway=[0, 1, 0, -1], fx="venom"),
 }
 
 
@@ -565,6 +584,13 @@ def draw_monster_fx(surf, fx, frame, ox, oy):
         # A sparkle travelling across the gold band.
         sx = 4 + frame * 2
         surf.fill(P['W'], (ox + sx * PIX, oy + 4 * PIX, PIX, PIX))
+    elif fx == "venom":
+        # Eyes glint and a bead of green venom drips from the fangs.
+        if frame in (1, 3):
+            _recolor(surf, P['E'], (255, 176, 96))
+        drip = 13 if frame in (1, 2) else 14
+        if frame != 0:
+            surf.fill(P['N'], (ox + 7 * PIX, oy + drip * PIX, PIX, PIX))
     elif fx == "witch":
         # A fireball crackling to life at her fingertips.
         core = P['o'] if frame % 2 == 0 else P['y']

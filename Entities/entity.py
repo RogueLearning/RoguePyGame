@@ -9,3 +9,4 @@ class Entity:
         self.color: Color = Color.GRAY
         self.name: str = ""
         self.burning_timer: int = 0
+        self.poison_timer: int = 0
