@@ -108,6 +108,11 @@ class SoundManager:
                 return 400 + math.sin(t * 120) * 100 - t * 600
             self._sounds["shoot"] = self._synthesize(shoot_freq, duration=0.15, volume=0.12, wave_type="triangle")
 
+            # 12. Teleport Sound (warbling rising shimmer)
+            def teleport_freq(t):
+                return 300 + t * 2400 + math.sin(t * 90) * 120
+            self._sounds["teleport"] = self._synthesize(teleport_freq, duration=0.35, volume=0.12, wave_type="sine")
+
         except Exception as e:
             print(f"Sound Manager: failed to synthesize retro sounds ({e}). Disabling audio.")
             self.enabled = False

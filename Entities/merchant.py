@@ -63,12 +63,16 @@ class Merchant(Monster):
         wand.charges = 3 + rng.randrange(3)
         items.append([wand, 55, False])
 
-        # Slot 4: Grappling Hook (40g) / Quiver of Arrows (15g) / Enchant (50g)
+        # Slot 4: Grappling Hook (40g) / Teleport Scroll (30g) /
+        #         Quiver of Arrows (15g) / Enchant (50g)
         slot4_roll = rng.randrange(100)
-        if slot4_roll < 30:
+        if slot4_roll < 25:
             from Items.item import make_grapple
             items.append([make_grapple(), 40, False])
-        elif slot4_roll < 55:
+        elif slot4_roll < 45:
+            from Items.item import make_teleport_scroll
+            items.append([make_teleport_scroll(), 30, False])
+        elif slot4_roll < 65:
             arrows = Item()
             arrows.name = "quiver of arrows"
             arrows.glyph = "🏹"

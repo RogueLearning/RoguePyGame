@@ -950,6 +950,69 @@ class Game:
             self._log.add("Arrows are used automatically when attacking with a Bow.", Color.YELLOW)
         elif item.kind == ItemKind.TOOL:
             self._log.add("Press [H], then a direction, to swing across a chasm.", Color.CYAN)
+        elif item.kind == ItemKind.SCROLL:
+            self._read_teleport_scroll(item)
+
+    def _teleport_destinations(self) -> list[tuple[int, int]]:
+        """Plain floor tiles the player could safely teleport to.
+
+        Only tiles connected (on foot) to the player's current spot or to the
+        level's stairs / spawn are considered, so a teleport can never strand
+        the player on an island cut off by chasms.
+        """
+        level = self._level
+        px, py = self._player.x, self._player.y
+        seeds = [(px, py)]
+        if level.is_overworld:
+            seeds.append(level.player_spawn)
+        else:
+            seeds.append(level.stairs_down)
+            if level.has_stairs_up:
+                seeds.append(level.stairs_up)
+
+        seen: set[tuple[int, int]] = set()
+        stack = [s for s in seeds if level.is_walkable(*s)]
+        seen.update(stack)
+        while stack:
+            x, y = stack.pop()
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                n = (x + dx, y + dy)
+                if n not in seen and level.is_walkable(*n):
+                    seen.add(n)
+                    stack.append(n)
+
+        occupied = {(m.x, m.y) for m in level.monsters if m.is_alive}
+        items = {(ie.x, ie.y) for ie in level.items}
+        return [
+            (x, y) for (x, y) in seen
+            if level.tiles[x][y].type == TileType.FLOOR
+            and (x, y) != (px, py)
+            and (x, y) not in occupied
+            and (x, y) not in items
+            and (x, y) not in level.burning_tiles
+        ]
+
+    def _read_teleport_scroll(self, item: Item):
+        candidates = self._teleport_destinations()
+        if not candidates:
+            self._log.add("The scroll flickers, but there is nowhere to go.", Color.DARK_GRAY)
+            return
+        px, py = self._player.x, self._player.y
+        # Prefer a real escape: somewhere at least 8 tiles away.
+        far = [c for c in candidates if (c[0] - px) ** 2 + (c[1] - py) ** 2 >= 64]
+        # Sort before choosing so the pick depends only on _rng (set order varies).
+        tx, ty = self._rng.choice(sorted(far or candidates))
+
+        self._renderer.add_particles(px, py, (190, 90, 255), count=18)
+        self._player.x, self._player.y = tx, ty
+        self._renderer.add_particles(tx, ty, (190, 90, 255), count=18)
+        self._renderer.add_damage_text(tx, ty, "TELEPORT", (200, 110, 255))
+        self._sound.play("teleport")
+        self._player.inventory.remove(item)
+        self._player.update_appearance()
+        self._log.add("You read the scroll and vanish in a flash of light!", Color.MAGENTA)
+        # Close the inventory so the player sees where they landed.
+        self._state = GameState.PLAYING
 
     def _drop_item(self, item: Item):
         from Items.item import ItemEntity

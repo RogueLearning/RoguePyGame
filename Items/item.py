@@ -13,6 +13,7 @@ class ItemKind(Enum):
     ARROW = "arrow"
     TOOL = "tool"
     ARTIFACT = "artifact"
+    SCROLL = "scroll"
 
 
 class Item:
@@ -55,6 +56,10 @@ def create(x: int, y: int, depth: int, rng: random.Random) -> ItemEntity:
     # Rare grappling hook -- lets you cross dungeon chasms.
     if rng.randrange(100) < 10:
         ie.item = make_grapple()
+        return ie
+    # Uncommon scroll of teleportation -- an emergency escape.
+    if rng.randrange(100) < 6:
+        ie.item = make_teleport_scroll()
         return ie
     if depth >= 2 and rng.randrange(100) < 15:
         item = Item()
@@ -177,3 +182,16 @@ def make_grapple() -> Item:
 def create_grapple(x: int, y: int) -> ItemEntity:
     return ItemEntity(x=x, y=y, item=make_grapple())
 
+
+
+def make_teleport_scroll() -> Item:
+    item = Item()
+    item.name = "scroll of teleportation"
+    item.glyph = "📜"
+    item.color = Color.MAGENTA
+    item.kind = ItemKind.SCROLL
+    return item
+
+
+def create_teleport_scroll(x: int, y: int) -> ItemEntity:
+    return ItemEntity(x=x, y=y, item=make_teleport_scroll())
