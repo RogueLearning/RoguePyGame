@@ -108,6 +108,11 @@ class SoundManager:
                 return 400 + math.sin(t * 120) * 100 - t * 600
             self._sounds["shoot"] = self._synthesize(shoot_freq, duration=0.15, volume=0.12, wave_type="triangle")
 
+            # 12. Spike trap Sound (sharp metallic snap dropping in pitch)
+            def spike_freq(t):
+                return 1400 - t * 5000
+            self._sounds["spike"] = self._synthesize(spike_freq, duration=0.18, volume=0.18, wave_type="square")
+
         except Exception as e:
             print(f"Sound Manager: failed to synthesize retro sounds ({e}). Disabling audio.")
             self.enabled = False

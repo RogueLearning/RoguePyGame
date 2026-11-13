@@ -33,7 +33,8 @@ NUM_CAMPAIGNS = 3
 # Stable ordering so tile types survive as small ints.
 # Append-only ordering so existing saves keep mapping correctly.
 _TILE_TYPES = [TileType.WALL, TileType.FLOOR, TileType.STAIRS_DOWN,
-               TileType.STAIRS_UP, TileType.FOUNTAIN, TileType.CHASM]
+               TileType.STAIRS_UP, TileType.FOUNTAIN, TileType.CHASM,
+               TileType.TRAP_HIDDEN, TileType.TRAP_REVEALED]
 _TILE_INDEX = {t: i for i, t in enumerate(_TILE_TYPES)}
 
 _ITEM_FIELDS = ["name", "glyph", "heal_amount", "attack_bonus", "is_enchanted",
