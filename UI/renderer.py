@@ -499,9 +499,14 @@ class Renderer:
                     if t.type == TileType.WALL:
                         color = (44, 86, 154) if visible else (24, 42, 78)
                         self._draw_brick_wall(rect, color)
-                    elif t.type == TileType.FLOOR:
+                    elif t.type in (TileType.FLOOR, TileType.TRAP_HIDDEN):
+                        # Hidden traps are drawn exactly like floor.
                         color = (34, 24, 44) if visible else (18, 14, 26)
                         self._draw_floor(rect, color, visible)
+                    elif t.type == TileType.TRAP_REVEALED:
+                        color = (34, 24, 44) if visible else (18, 14, 26)
+                        self._draw_floor(rect, color, visible)
+                        self._draw_spikes(rect, visible)
                     elif t.type == TileType.STAIRS_DOWN:
                         color = (34, 24, 44) if visible else (18, 14, 26)
                         self._draw_floor(rect, color, visible)
@@ -658,6 +663,20 @@ class Renderer:
             pulse = 1 if (self._frame_count // 24) % 2 == 0 else 0
             glow = (96 + 12 * pulse, 66 + 8 * pulse, 130 + 16 * pulse)
             pygame.draw.rect(self._screen, glow, (rect.left + 3, rect.top + 3, 2, 2))
+
+    def _draw_spikes(self, rect: pygame.Rect, visible: bool):
+        # A sunken plate with a 3x2 grid of metal spikes poking up.
+        plate = (70, 40, 40) if visible else (40, 26, 26)
+        metal = (205, 205, 215) if visible else (100, 100, 110)
+        tip = (230, 70, 60) if visible else (110, 45, 40)
+        pygame.draw.rect(self._screen, plate, (rect.left + 4, rect.top + 4, rect.width - 8, rect.height - 8), border_radius=2)
+        for row in range(2):
+            base_y = rect.top + 15 + row * 10
+            for col in range(3):
+                cx = rect.left + 9 + col * 7 + (3 if row else 0) - 2
+                pygame.draw.polygon(self._screen, metal,
+                                    [(cx - 3, base_y), (cx + 3, base_y), (cx, base_y - 8)])
+                self._screen.fill(tip, (cx, base_y - 8, 1, 2))
 
     def _draw_stairs_down(self, rect: pygame.Rect, color: tuple[int, int, int]):
         # Series of step bars leading down

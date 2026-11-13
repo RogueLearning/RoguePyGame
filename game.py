@@ -740,6 +740,7 @@ class Game:
             self._sound.play("walk")
 
         self._try_use_fountain(nx, ny)
+        self._spring_trap(nx, ny)
 
         here = self._level.item_at(nx, ny)
         if here is not None:
@@ -771,6 +772,35 @@ class Game:
         # Enchanter graphic visual flash
         self._renderer.add_particles(x, y, (240, 200, 30), count=20)
         self._renderer.add_damage_text(x, y, "BLESSED!", (240, 200, 30))
+
+    def _spring_trap(self, x: int, y: int):
+        """Spike trap under the player. A hidden trap springs and is revealed;
+        a revealed trap's spikes stay up and still hurt -- walking onto known
+        spikes is the player's choice, and the trap is placed in open ground
+        so it can always be stepped around. Monsters never trigger traps."""
+        tile = self._level.tiles[x][y]
+        if not tile.is_trap:
+            return
+
+        depth = max(1, self._player.depth)
+        dmg = self._rng.randint(1, 3) + depth
+        self._player.hp -= dmg
+
+        if tile.type == TileType.TRAP_HIDDEN:
+            tile.type = TileType.TRAP_REVEALED
+            self._log.add(f"Spikes spring from the floor! You take {dmg} damage.", Color.RED)
+            self._renderer.trigger_shake(8.0)
+        else:
+            self._log.add(f"You step onto the spikes for {dmg} damage.", Color.RED)
+            self._renderer.trigger_shake(5.0)
+
+        self._sound.play("spike")
+        self._renderer.add_damage_text(x, y, f"-{dmg}", (220, 55, 55))
+        self._renderer.add_particles(x, y, (200, 200, 210), count=10)
+        self._renderer.add_particles(x, y, (180, 40, 40), count=6)
+
+        if not self._player.is_alive:
+            self._log.add("You are impaled on the spikes...", Color.RED)
 
     def _attack_monster(self, m: Monster):
         if getattr(m, "is_npc", False):
@@ -1373,6 +1403,7 @@ class Game:
             self._player.update_appearance()
             self._renderer.add_damage_text(landing[0], landing[1], "SWING!", (120, 200, 255))
             self._try_use_fountain(landing[0], landing[1])
+            self._spring_trap(landing[0], landing[1])
             if self._player.is_alive:
                 self._state = GameState.PLAYING
             else:

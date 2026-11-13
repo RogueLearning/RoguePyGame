@@ -202,7 +202,64 @@ class MapGenerator:
         # Carve chasms (open gaps you need a grappling hook to cross).
         self._carve_chasms(level, rooms, stairs)
 
+        # Hide spike traps on open floor (after chasms, so they only land on
+        # tiles that are still plain floor).
+        self._place_traps(level, depth, stairs)
+
         return level
+
+    @staticmethod
+    def trap_count_for_depth(depth: int, rng: random.Random) -> int:
+        """Target number of hidden spike traps on a dungeon floor: 2 on the
+        first floor, rising by one per floor, plus a little random spread."""
+        return 1 + depth + rng.randint(0, depth // 2)
+
+    def _place_traps(self, level: DungeonLevel, depth: int, stairs_down):
+        """Scatter hidden spike traps on plain floor tiles that sit in open
+        ground (all 8 neighbours walkable floor), so a trap never lands in a
+        corridor or doorway and a revealed trap can always be stepped around.
+        Spawn, both stairs and fountains are excluded by the FLOOR check;
+        a 1-tile buffer is kept around the arrival points, and traps never
+        touch each other."""
+        rng = self._rng
+        if depth < 1:
+            return
+        keep_clear = {level.player_spawn, stairs_down}
+        if level.has_stairs_up:
+            keep_clear.add(level.stairs_up)
+
+        def eligible(x: int, y: int) -> bool:
+            if level.tiles[x][y].type != TileType.FLOOR:
+                return False
+            if level.monster_at(x, y) is not None or level.item_at(x, y) is not None:
+                return False
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    nx, ny = x + dx, y + dy
+                    if (nx, ny) in keep_clear:
+                        return False
+                    if dx == 0 and dy == 0:
+                        continue
+                    if not level.in_bounds(nx, ny):
+                        return False
+                    ntype = level.tiles[nx][ny].type
+                    # Neighbours must be open, non-trap ground: no walls
+                    # (chokepoint), no chasm edges, no adjacent traps.
+                    if ntype in (TileType.WALL, TileType.CHASM,
+                                 TileType.TRAP_HIDDEN, TileType.TRAP_REVEALED):
+                        return False
+            return True
+
+        candidates = [(x, y) for x in range(1, level.width - 1)
+                      for y in range(1, level.height - 1)]
+        rng.shuffle(candidates)
+        remaining = self.trap_count_for_depth(depth, rng)
+        for (x, y) in candidates:
+            if remaining <= 0:
+                break
+            if eligible(x, y):
+                level.tiles[x][y].type = TileType.TRAP_HIDDEN
+                remaining -= 1
 
     def _carve_chasms(self, level: DungeonLevel, rooms, stairs_down):
         """Add a few chasm pools inside non-critical rooms. Always verifies the

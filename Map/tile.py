@@ -8,6 +8,10 @@ class TileType(Enum):
     STAIRS_UP = "stairs_up"
     FOUNTAIN = "fountain"
     CHASM = "chasm"
+    # Spike traps: hidden ones look exactly like floor until stepped on; the
+    # spikes then stay up (revealed) and still hurt anyone who steps there.
+    TRAP_HIDDEN = "trap_hidden"
+    TRAP_REVEALED = "trap_revealed"
 
 
 class Tile:
@@ -22,6 +26,10 @@ class Tile:
     def is_walkable(self) -> bool:
         # Chasms are open gaps -- you can't walk across without a grappling hook.
         return self.type not in (TileType.WALL, TileType.CHASM)
+
+    @property
+    def is_trap(self) -> bool:
+        return self.type in (TileType.TRAP_HIDDEN, TileType.TRAP_REVEALED)
 
     @property
     def blocks_sight(self) -> bool:
