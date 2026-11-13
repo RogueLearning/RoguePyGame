@@ -13,6 +13,7 @@ class ItemKind(Enum):
     ARROW = "arrow"
     TOOL = "tool"
     ARTIFACT = "artifact"
+    ARMOR = "armor"
 
 
 class Item:
@@ -28,6 +29,7 @@ class Item:
         self.wand_damage: int = 0
         self.wand_range: int = 0
         self.coin_value: int = 0
+        self.defense: int = 0
 
     @property
     def display_name(self) -> str:
@@ -55,6 +57,10 @@ def create(x: int, y: int, depth: int, rng: random.Random) -> ItemEntity:
     # Rare grappling hook -- lets you cross dungeon chasms.
     if rng.randrange(100) < 10:
         ie.item = make_grapple()
+        return ie
+    # Armor -- reduces incoming damage; better pieces appear deeper.
+    if rng.randrange(100) < 12:
+        ie.item = make_armor(depth, rng)
         return ie
     if depth >= 2 and rng.randrange(100) < 15:
         item = Item()
@@ -177,3 +183,19 @@ def make_grapple() -> Item:
 def create_grapple(x: int, y: int) -> ItemEntity:
     return ItemEntity(x=x, y=y, item=make_grapple())
 
+
+
+# Ordered weakest -> strongest; index is chosen from the defense rating.
+_ARMOR_NAMES = ["leather armor", "studded armor", "chain mail", "scale mail", "plate armor"]
+
+
+def make_armor(depth: int, rng: random.Random) -> Item:
+    defense = 1 + depth // 3 + rng.randrange(2)
+    item = Item()
+    idx = max(0, min(defense - 1, len(_ARMOR_NAMES) - 1))
+    item.name = _ARMOR_NAMES[idx]
+    item.glyph = "🛡️"
+    item.color = Color.GRAY
+    item.kind = ItemKind.ARMOR
+    item.defense = defense
+    return item
