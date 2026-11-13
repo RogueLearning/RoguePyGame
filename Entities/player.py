@@ -33,6 +33,19 @@ class Player(Entity):
         return self.base_attack + bonus
 
     @property
+    def defense(self) -> int:
+        """Flat damage reduction from equipped armor plus the Knight's class block."""
+        armor = self.inventory.equipped_armor
+        bonus = armor.defense if armor else 0
+        if self.char_class == "Knight":
+            bonus += 1
+        return bonus
+
+    def mitigate(self, dmg: int) -> int:
+        """Apply defense to a raw hit. Every hit still deals at least 1."""
+        return max(1, dmg - self.defense)
+
+    @property
     def is_alive(self) -> bool:
         return self.hp > 0
 

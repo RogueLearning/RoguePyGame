@@ -718,6 +718,8 @@ class Renderer:
                 self._draw_grapple(rect)
             elif ie.item.kind.value == "artifact":
                 self._draw_artifact(rect, color)
+            elif ie.item.kind.value == "armor":
+                self._draw_armor(rect, color)
             else:
                 # Fallback circular pouch item
                 pygame.draw.circle(self._screen, color, rect.center, 6)
@@ -751,6 +753,18 @@ class Renderer:
         pygame.draw.line(self._screen, steel, (hx, hy), (hx - 4, hy + 4), 2)
         pygame.draw.line(self._screen, steel, (hx, hy), (hx + 4, hy + 4), 2)
         pygame.draw.line(self._screen, steel, (hx, hy), (hx, hy + 5), 2)
+
+    def _draw_armor(self, rect: pygame.Rect, color: tuple[int, int, int]):
+        # A simple heater shield: rectangular top tapering to a point.
+        cx, top, bottom = rect.centerx, rect.top + 5, rect.bottom - 4
+        half_w = 8
+        points = [(cx - half_w, top), (cx + half_w, top),
+                  (cx + half_w, rect.centery + 1), (cx, bottom),
+                  (cx - half_w, rect.centery + 1)]
+        pygame.draw.polygon(self._screen, color, points)
+        pygame.draw.polygon(self._screen, (90, 90, 100), points, 1)
+        # Central boss stripe
+        pygame.draw.line(self._screen, (230, 230, 235), (cx, top + 2), (cx, bottom - 3), 2)
 
     def _draw_key(self, rect: pygame.Rect):
         # Golden Key drawing
@@ -1566,6 +1580,7 @@ class Renderer:
 
         # Status text details
         self._draw_text(tx, y, f"ATK:   {player.attack}", color_rgb(Color.WHITE)); y += LH
+        self._draw_text(tx, y, f"DEF:   {player.defense}", color_rgb(Color.WHITE)); y += LH
         self._draw_text(tx, y, f"Kills: {player.kills}", color_rgb(Color.WHITE)); y += LH
 
         arrows_text = f"Arrows: {getattr(player, 'arrows', 0)}"
@@ -1598,13 +1613,18 @@ class Renderer:
         pygame.draw.line(self._screen, (35, 35, 45), (sx + 15, y), (sx + SIDEBAR_WIDTH - 15, y))
         y += 12
 
-        self._draw_text(tx, y, "Weapon:", color_rgb(Color.YELLOW)); y += LH
-        weapon_name = player.inventory.equipped_weapon.display_name if player.inventory.equipped_weapon else "(fists)"
-        self._draw_text(tx, y, weapon_name, color_rgb(Color.CYAN), font=self._header_font); y += LH + 6
-
-        self._draw_text(tx, y, "Wand:", color_rgb(Color.YELLOW)); y += LH
-        wand_name = player.inventory.equipped_wand.display_name if player.inventory.equipped_wand else "(none)"
-        self._draw_text(tx, y, wand_name, color_rgb(Color.MAGENTA), font=self._header_font)
+        # One compact row per slot (label + item) so all three fit in the
+        # 720px-tall sidebar below the controls cheat sheet.
+        inv = player.inventory
+        slots = [
+            ("Wpn", inv.equipped_weapon, "(fists)", Color.CYAN),
+            ("Wnd", inv.equipped_wand, "(none)", Color.MAGENTA),
+            ("Arm", inv.equipped_armor, "(none)", Color.GRAY),
+        ]
+        for label, it, empty, color in slots:
+            self._draw_text(tx, y, label, color_rgb(Color.YELLOW))
+            name = it.display_name if it else empty
+            self._draw_text(tx + 52, y, name, color_rgb(color)); y += LH - 4
 
     def _draw_log(self, log: MessageLog):
         y_top = MAP_PIXEL_HEIGHT
@@ -1676,11 +1696,15 @@ class Renderer:
                     detail = "opens locked chests"
                 elif item.kind.value == "arrow":
                     detail = f"{item.charges} arrows"
+                elif item.kind.value == "armor":
+                    detail = f"+{item.defense} def"
                 else:
                     detail = ""
 
                 equipped = ""
-                is_equipped = (item is player.inventory.equipped_weapon or item is player.inventory.equipped_wand)
+                inv = player.inventory
+                is_equipped = (item is inv.equipped_weapon or item is inv.equipped_wand
+                               or item is inv.equipped_armor)
                 if is_equipped:
                     equipped = " (equipped)"
 

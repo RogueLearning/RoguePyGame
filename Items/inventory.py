@@ -6,6 +6,7 @@ class Inventory:
         self.items: list[Item] = []
         self.equipped_weapon: Item | None = None
         self.equipped_wand: Item | None = None
+        self.equipped_armor: Item | None = None
         self.capacity: int = 20
 
     def add(self, item: Item) -> bool:
@@ -21,3 +22,5 @@ class Inventory:
             self.equipped_weapon = None
         if self.equipped_wand is item:
             self.equipped_wand = None
+        if self.equipped_armor is item:
+            self.equipped_armor = None

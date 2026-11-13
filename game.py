@@ -944,6 +944,17 @@ class Game:
             self._player.inventory.equipped_wand = item
             self._log.add(f"You ready the {item.display_name}.", Color.MAGENTA)
             self._renderer.add_damage_text(self._player.x, self._player.y, "READY", (200, 60, 200))
+        elif item.kind == ItemKind.ARMOR:
+            # Selecting the currently worn armor again takes it off.
+            inv = self._player.inventory
+            if inv.equipped_armor is item:
+                inv.equipped_armor = None
+                self._log.add(f"You take off the {item.display_name}.", Color.GRAY)
+                self._renderer.add_damage_text(self._player.x, self._player.y, "UNEQUIP", (150, 150, 155))
+                return
+            inv.equipped_armor = item
+            self._log.add(f"You put on the {item.display_name}. (+{item.defense} def)", Color.CYAN)
+            self._renderer.add_damage_text(self._player.x, self._player.y, "EQUIP", (45, 175, 205))
         elif item.kind == ItemKind.KEY:
             self._log.add("Use keys by walking into locked chests.", Color.YELLOW)
         elif item.kind == ItemKind.ARROW:
@@ -1636,9 +1647,7 @@ class Game:
         def on_complete():
             # Only connects if the player is still on the targeted tile.
             if self._player.x == dest[0] and self._player.y == dest[1]:
-                dmg = max(1, m.attack + self._rng.randint(-1, 1))
-                if getattr(self._player, "char_class", "") == "Knight":
-                    dmg = max(1, dmg - 1)
+                dmg = self._player.mitigate(m.attack + self._rng.randint(-1, 1))
                 self._player.hp -= dmg
                 self._renderer.add_damage_text(self._player.x, self._player.y, f"-{dmg}", (220, 55, 55))
                 self._renderer.trigger_shake(6.0)
@@ -1678,14 +1687,14 @@ class Game:
             dy = self._player.y - m.y
 
             if abs(dx) + abs(dy) == 1:
-                dmg = max(1, m.attack + self._rng.randint(-1, 1))
-                if getattr(self._player, "char_class", "") == "Knight":
-                    dmg = max(1, dmg - 1)
+                raw = max(1, m.attack + self._rng.randint(-1, 1))
+                dmg = self._player.mitigate(raw)
                 self._player.hp -= dmg
                 self._sound.play("hit")
-                
-                if getattr(self._player, "char_class", "") == "Knight":
-                    self._log.add(f"The {m.name} hits you for {dmg} (blocked 1).", Color.RED)
+
+                blocked = raw - dmg
+                if blocked > 0:
+                    self._log.add(f"The {m.name} hits you for {dmg} (blocked {blocked}).", Color.RED)
                 else:
                     self._log.add(f"The {m.name} hits you for {dmg}.", Color.RED)
                 
@@ -1726,7 +1735,7 @@ class Game:
                             
                             def on_dragon_fire_complete():
                                 if self._player.x == path[-1][0] and self._player.y == path[-1][1]:
-                                    dmg = max(1, m.attack + self._rng.randint(-1, 1))
+                                    dmg = self._player.mitigate(m.attack + self._rng.randint(-1, 1))
                                     self._player.hp -= dmg
                                     if getattr(self._player, "burning_timer", 0) < 180:
                                         self._player.burning_timer = 180

@@ -37,7 +37,7 @@ _TILE_TYPES = [TileType.WALL, TileType.FLOOR, TileType.STAIRS_DOWN,
 _TILE_INDEX = {t: i for i, t in enumerate(_TILE_TYPES)}
 
 _ITEM_FIELDS = ["name", "glyph", "heal_amount", "attack_bonus", "is_enchanted",
-                "charges", "wand_damage", "wand_range", "coin_value"]
+                "charges", "wand_damage", "wand_range", "coin_value", "defense"]
 
 # Optional monster attributes worth preserving (set on various subclasses).
 _MONSTER_OPT = ["is_boss", "is_chest", "is_locked", "is_mimic", "is_npc",
@@ -208,6 +208,7 @@ def serialize_player(player) -> dict:
             "items": [serialize_item(it) for it in items],
             "equipped_weapon": idx_of(inv.equipped_weapon),
             "equipped_wand": idx_of(inv.equipped_wand),
+            "equipped_armor": idx_of(inv.equipped_armor),
         },
     }
 
@@ -236,6 +237,8 @@ def apply_player(player, d: dict):
     ewd = invd.get("equipped_wand", -1)
     inv.equipped_weapon = inv.items[ew] if 0 <= ew < len(inv.items) else None
     inv.equipped_wand = inv.items[ewd] if 0 <= ewd < len(inv.items) else None
+    ea = invd.get("equipped_armor", -1)
+    inv.equipped_armor = inv.items[ea] if 0 <= ea < len(inv.items) else None
 
 
 # ------------------------------------------------------------------
