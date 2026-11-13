@@ -718,6 +718,8 @@ class Renderer:
                 self._draw_grapple(rect)
             elif ie.item.kind.value == "artifact":
                 self._draw_artifact(rect, color)
+            elif ie.item.kind.value == "scroll":
+                self._draw_scroll(rect, color)
             else:
                 # Fallback circular pouch item
                 pygame.draw.circle(self._screen, color, rect.center, 6)
@@ -735,6 +737,17 @@ class Renderer:
         pygame.draw.polygon(self._screen, color, pts)
         pygame.draw.polygon(self._screen, (255, 255, 255), pts, 1)
         pygame.draw.line(self._screen, (255, 255, 255), (cx - 2, cy - 2), (cx + 2, cy - 3), 1)
+
+    def _draw_scroll(self, rect: pygame.Rect, color: tuple[int, int, int]):
+        # Rolled parchment with wooden end-caps and a glowing rune.
+        paper = (225, 205, 160)
+        cap = (120, 80, 40)
+        body = pygame.Rect(rect.centerx - 8, rect.centery - 6, 16, 12)
+        pygame.draw.rect(self._screen, paper, body)
+        pygame.draw.rect(self._screen, cap, (body.left - 2, body.top - 2, 3, body.height + 4))
+        pygame.draw.rect(self._screen, cap, (body.right - 1, body.top - 2, 3, body.height + 4))
+        pygame.draw.circle(self._screen, color, body.center, 3)
+        pygame.draw.circle(self._screen, (255, 255, 255), body.center, 3, 1)
 
     def _draw_grapple(self, rect: pygame.Rect):
         # Grappling hook: a rope to a 3-pronged hook.
@@ -1676,6 +1689,10 @@ class Renderer:
                     detail = "opens locked chests"
                 elif item.kind.value == "arrow":
                     detail = f"{item.charges} arrows"
+                elif item.kind.value == "tool":
+                    detail = "press H to swing"
+                elif item.kind.value == "scroll":
+                    detail = "teleports you away"
                 else:
                     detail = ""
 
@@ -1789,6 +1806,8 @@ class Renderer:
                 self._draw_arrows_item(icon_rect)
             elif item.kind.value == "tool":
                 self._draw_grapple(icon_rect)
+            elif item.kind.value == "scroll":
+                self._draw_scroll(icon_rect, icon_color)
 
             # Item Name
             item_name = item.display_name.capitalize()
@@ -1812,6 +1831,8 @@ class Renderer:
                 desc = f"Quiver of {item.charges} arrows. Use with a bow."
             elif item.kind.value == "tool":
                 desc = "Press [H] to swing across chasms."
+            elif item.kind.value == "scroll":
+                desc = "Teleports you far across the level."
             else:
                 desc = ""
 
