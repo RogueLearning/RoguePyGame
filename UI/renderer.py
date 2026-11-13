@@ -111,7 +111,8 @@ class Renderer:
         # Load animated monster sprites (64x32: 2-frame idle wobble)
         self._monster_sprites = {}
         for mname in ("rat", "goblin", "orc", "troll", "wraith", "dread_knight",
-                      "dragon", "mimic", "witch", "chest", "locked_chest"):
+                      "dragon", "mimic", "witch", "chest", "locked_chest",
+                      "giant_spider"):
             try:
                 self._monster_sprites[mname] = pygame.image.load(
                     f"assets/sprites/{mname}.png").convert_alpha()
@@ -918,6 +919,24 @@ class Renderer:
             enchanted = (player.inventory.equipped_weapon and player.inventory.equipped_weapon.is_enchanted)
             self._draw_player_sprite(rect, color_rgb(player.color), enchanted, player=player)
 
+            # Poisoned: sickly green bubbles rise off the player. Particles
+            # live in map space (camera/shake added at draw), so use vx/vy.
+            if getattr(player, "poison_timer", 0) > 0:
+                pulse = 0.5 + 0.5 * math.sin(self._frame_count * 0.15)
+                ring = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
+                pygame.draw.circle(ring, (90, 200, 50, int(70 + 90 * pulse)),
+                                   (TILE_SIZE // 2, TILE_SIZE // 2), 14, 2)
+                self._screen.blit(ring, rect.topleft)
+            if getattr(player, "poison_timer", 0) > 0 and self._frame_count % 6 == 0:
+                self._particles.append({
+                    "x": vx + TILE_SIZE / 2 + random.uniform(-8, 8),
+                    "y": vy + TILE_SIZE / 2 + random.uniform(-4, 8),
+                    "vx": random.uniform(-0.15, 0.15), "vy": random.uniform(-0.9, -0.4),
+                    "color": (90, 200, 50) if random.random() > 0.4 else (150, 235, 90),
+                    "size": random.uniform(2, 3.5),
+                    "life": random.uniform(0.7, 1.0), "max_life": 1.0,
+                })
+
     def _get_interpolated_pos(self, entity) -> tuple[float, float]:
         target_x = entity.x * TILE_SIZE
         target_y = entity.y * TILE_SIZE
@@ -1194,6 +1213,20 @@ class Renderer:
                     "life": random.uniform(0.2, 0.4),
                     "max_life": 1.0
                 })
+        elif name == "giant spider":
+            # Fallback if the spritesheet is missing: body, legs, red eyes.
+            cx, cy = rect.center
+            for side in (-1, 1):
+                for i, ly in enumerate((-6, -2, 2, 6)):
+                    knee = (cx + side * 9, cy + ly - 3)
+                    foot = (cx + side * 14, cy + ly + 3 + (i % 2))
+                    pygame.draw.line(self._screen, (124, 130, 142), (cx, cy + ly // 2), knee, 2)
+                    pygame.draw.line(self._screen, (124, 130, 142), knee, foot, 2)
+            pygame.draw.ellipse(self._screen, (62, 66, 76), (cx - 6, cy - 9, 12, 12))
+            pygame.draw.circle(self._screen, (62, 66, 76), (cx, cy + 5), 5)
+            pygame.draw.circle(self._screen, (64, 176, 92), (cx, cy - 4), 2)
+            pygame.draw.circle(self._screen, (252, 60, 48), (cx - 2, cy + 4), 1)
+            pygame.draw.circle(self._screen, (252, 60, 48), (cx + 2, cy + 4), 1)
         else:
             # Threat marker dot
             pygame.draw.circle(self._screen, color, rect.center, 8)
@@ -1565,7 +1598,13 @@ class Renderer:
         y += LH + 4
 
         # Status text details
-        self._draw_text(tx, y, f"ATK:   {player.attack}", color_rgb(Color.WHITE)); y += LH
+        self._draw_text(tx, y, f"ATK:   {player.attack}", color_rgb(Color.WHITE))
+        # Poison status shares the ATK row (the sidebar has no spare lines).
+        poison = getattr(player, "poison_timer", 0)
+        if poison > 0:
+            secs = (poison + 59) // 60
+            self._draw_text(tx + 150, y, f"POISON {secs}s", color_rgb(Color.GREEN))
+        y += LH
         self._draw_text(tx, y, f"Kills: {player.kills}", color_rgb(Color.WHITE)); y += LH
 
         arrows_text = f"Arrows: {getattr(player, 'arrows', 0)}"

@@ -87,12 +87,20 @@ def _make_dragon() -> Monster:
     return m
 
 
+def _make_spider() -> Monster:
+    """Giant spider: modest stats, but its bite can poison the player."""
+    m = _make("giant spider", "🕷", Color.DARK_GRAY, 12, 4)
+    m.poison_chance = 0.3   # chance per landed melee hit to poison
+    return m
+
+
 def create(x: int, y: int, depth: int, rng: random.Random) -> Monster:
     pool = [(6, lambda: _make("rat", "🐀", Color.DARK_GRAY, 4, 2))]
     if depth >= 2:
         pool.append((5, lambda: _make("goblin", "👺", Color.GREEN, 8, 3)))
     if depth >= 3:
         pool.append((4, lambda: _make("orc", "👹", Color.DARK_GREEN, 14, 5)))
+        pool.append((3, _make_spider))
     if depth >= 4:
         pool.append((2, _make_dragon))
         # Witches hurl fireballs from afar.

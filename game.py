@@ -23,6 +23,8 @@ import save_system
 FOV_RADIUS = 8
 HIGH_SCORE_FILE = "highscores.txt"
 MONSTER_ACT_COOLDOWN = 35  # Frames between monster steps in real-time
+POISON_DURATION = 360      # Frames of poison applied by a venomous bite (6s @ 60fps)
+POISON_TICK_FRAMES = 60    # Poison deals 1 damage once per second
 
 
 class GameState(Enum):
@@ -149,6 +151,21 @@ class Game:
                             if not self._player.is_alive:
                                 self._log.add("You burned to death...", Color.RED)
                                 self._trigger_game_over()
+
+                    # Ticking damage for poisoned player
+                    if self._player.is_alive and getattr(self._player, "poison_timer", 0) > 0:
+                        self._player.poison_timer -= 1
+                        if self._player.poison_timer % POISON_TICK_FRAMES == 0:
+                            self._player.hp -= 1
+                            self._sound.play("hit")
+                            self._renderer.add_damage_text(self._player.x, self._player.y, "-1 Poison", (110, 220, 60))
+                            self._renderer.add_particles(self._player.x, self._player.y, (90, 200, 50), count=4)
+                            self._log.add("Poison burns in your veins!", Color.RED)
+                            if not self._player.is_alive:
+                                self._log.add("You succumb to the poison...", Color.RED)
+                                self._trigger_game_over()
+                            elif self._player.poison_timer == 0:
+                                self._log.add("The poison wears off.", Color.GREEN)
 
                     # Ticking damage for burning monsters
                     for m in list(self._level.monsters):
@@ -908,8 +925,14 @@ class Game:
                 self._log.add(f"You drink the {item.display_name}. (+{healed} HP)", Color.GREEN)
                 self._renderer.add_damage_text(self._player.x, self._player.y, f"+{healed} HP", (46, 196, 120))
                 self._renderer.add_particles(self._player.x, self._player.y, (50, 220, 100), count=10)
-            else:
+            elif getattr(self._player, "poison_timer", 0) <= 0:
                 self._log.add(f"You drink the {item.display_name}. No effect.", Color.GREEN)
+            else:
+                self._log.add(f"You drink the {item.display_name}.", Color.GREEN)
+            if getattr(self._player, "poison_timer", 0) > 0:
+                self._player.poison_timer = 0
+                self._log.add("The potion purges the poison.", Color.GREEN)
+                self._renderer.add_damage_text(self._player.x, self._player.y, "CURED", (110, 220, 60))
             self._sound.play("potion")
             self._player.inventory.remove(item)
             self._player.update_appearance()
@@ -1698,6 +1721,17 @@ class Game:
                 if not self._player.is_alive:
                     self._log.add(f"The {m.name} kills you...", Color.RED)
                     return
+
+                # Venomous monsters (giant spiders) may poison on a hit.
+                poison_chance = getattr(m, "poison_chance", 0)
+                if poison_chance > 0 and self._rng.random() < poison_chance:
+                    if getattr(self._player, "poison_timer", 0) <= 0:
+                        self._log.add(f"The {m.name}'s bite poisons you!", Color.RED)
+                    else:
+                        self._log.add(f"The {m.name}'s venom spreads further!", Color.RED)
+                    # Refresh rather than stack, so multiple bites don't snowball.
+                    self._player.poison_timer = max(getattr(self._player, "poison_timer", 0), POISON_DURATION)
+                    self._renderer.add_particles(self._player.x, self._player.y, (90, 200, 50), count=8)
                 continue
 
             # Ranged attackers (trolls shoot arrows, witches hurl fireballs)
